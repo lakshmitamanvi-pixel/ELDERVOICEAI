@@ -1,51 +1,48 @@
 import React, { useState, useEffect } from 'react';
-import { Mic, MicOff, Volume2, VolumeX, Sparkles, Globe } from 'lucide-react';
-import { createSpeechRecognizer, speakText, stopSpeech, isSpeechRecognitionSupported } from '../../services/speech.js';
+import { Mic, MicOff, Volume2, VolumeX, Sparkles, Globe, Send, AlertCircle, MessageSquare } from 'lucide-react';
+import {
+  startListening,
+  stopListening,
+  speak,
+  stopSpeech,
+  isSpeechRecognitionSupported,
+  isSpeechSynthesisSupported,
+  getFallbackDetails,
+  subscribeFallback,
+  submitManualInput,
+} from '../../services/speechService.js';
 import { generateSeniorVoiceResponse } from '../../services/gemini.js';
 import { SUPPORTED_LANGUAGES, getTranslation } from '../../utils/multilingual.js';
 
 export const SeniorVoiceAssistant = ({ onAssistantResponse }) => {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const [interimTranscript, setInterimTranscript] = useState('');
   const [aiResponse, setAiResponse] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [speechEnabled, setSpeechEnabled] = useState(true);
   const [selectedLanguage, setSelectedLanguage] = useState('en-US');
-  const [recognizer, setRecognizer] = useState(null);
+  const [fallbackInfo, setFallbackInfo] = useState(() => getFallbackDetails());
+  const [manualInputText, setManualInputText] = useState('');
 
+  // Subscribe to speech service fallback notifications
   useEffect(() => {
-    if (!isSpeechRecognitionSupported()) return;
-
-    const instance = createSpeechRecognizer({
-      language: selectedLanguage,
-      continuous: false,
-      interimResults: true,
-      onStart: () => setIsListening(true),
-      onEnd: () => setIsListening(false),
-      onResult: async (text, isFinal) => {
-        setTranscript(text);
-        if (isFinal && text.trim().length > 0) {
-          await handleProcessVoiceInput(text);
-        }
-      },
-      onError: (err) => {
-        console.error('Speech recognition error:', err);
-        setIsListening(false);
-      },
+    const unsubscribe = subscribeFallback((details) => {
+      setFallbackInfo(details);
     });
-
-    setRecognizer(instance);
 
     return () => {
       stopSpeech();
-      if (instance && instance.abort) {
-        instance.abort();
-      }
+      stopListening();
+      unsubscribe();
     };
-  }, [selectedLanguage]);
+  }, []);
 
   const handleProcessVoiceInput = async (spokenText) => {
+    if (!spokenText || spokenText.trim().length === 0) return;
+
     setIsProcessing(true);
+    setTranscript(spokenText);
     try {
       const response = await generateSeniorVoiceResponse(spokenText);
       setAiResponse(response);
@@ -53,39 +50,74 @@ export const SeniorVoiceAssistant = ({ onAssistantResponse }) => {
         onAssistantResponse({ prompt: spokenText, response });
       }
 
-      if (speechEnabled) {
-        speakText(response, { language: selectedLanguage, rate: 0.85 });
+      if (speechEnabled && isSpeechSynthesisSupported()) {
+        await speak(response, selectedLanguage, { rate: 0.9, pitch: 1.0 });
       }
     } catch (error) {
       console.error('Error generating AI voice response:', error);
       const fallback = 'I heard you, and I am here with you.';
       setAiResponse(fallback);
-      if (speechEnabled) {
-        speakText(fallback, { language: selectedLanguage });
+      if (speechEnabled && isSpeechSynthesisSupported()) {
+        await speak(fallback, selectedLanguage, { rate: 0.9, pitch: 1.0 });
       }
     } finally {
       setIsProcessing(false);
+      setInterimTranscript('');
     }
   };
 
   const toggleListening = () => {
-    if (!recognizer) {
-      handleProcessVoiceInput('How can I contact my family?');
+    if (isListening) {
+      stopListening();
+      setIsListening(false);
       return;
     }
 
-    if (isListening) {
-      recognizer.stop();
-      setIsListening(false);
-    } else {
-      stopSpeech();
-      setTranscript('');
-      try {
-        recognizer.start();
-      } catch (err) {
-        console.error('Recognizer start failed:', err);
+    stopSpeech();
+    setTranscript('');
+    setInterimTranscript('');
+
+    const startResult = startListening(
+      selectedLanguage,
+      async (result) => {
+        setTranscript(result.transcript);
+        setInterimTranscript(result.interimTranscript);
+
+        if (result.isFinal && result.transcript.trim().length > 0) {
+          await handleProcessVoiceInput(result.transcript);
+        }
+      },
+      (state, details) => {
+        if (state === 'listening') {
+          setIsListening(true);
+        } else if (state === 'idle') {
+          setIsListening(false);
+        } else if (state === 'error' || state === 'unsupported') {
+          setIsListening(false);
+        }
+      },
+      (fallbackData) => {
+        setFallbackInfo(fallbackData);
       }
+    );
+
+    if (!startResult.success) {
+      setIsListening(false);
     }
+  };
+
+  const handleManualSubmit = async (e) => {
+    if (e) e.preventDefault();
+    if (!manualInputText.trim() || isProcessing) return;
+
+    const query = manualInputText.trim();
+    setManualInputText('');
+    await submitManualInput(query, handleProcessVoiceInput);
+  };
+
+  const handleQuickPrompt = async (promptText) => {
+    if (isProcessing) return;
+    await submitManualInput(promptText, handleProcessVoiceInput);
   };
 
   const toggleSpeechAudio = () => {
@@ -95,6 +127,8 @@ export const SeniorVoiceAssistant = ({ onAssistantResponse }) => {
       stopSpeech();
     }
   };
+
+  const isSttAvailable = isSpeechRecognitionSupported() && !fallbackInfo.active;
 
   return (
     <div className="bg-warmWhite-paper border-3 border-elderBlue-200 rounded-3xl p-6 sm:p-8 shadow-xl">
@@ -108,7 +142,12 @@ export const SeniorVoiceAssistant = ({ onAssistantResponse }) => {
           <select
             id="language-select"
             value={selectedLanguage}
-            onChange={(e) => setSelectedLanguage(e.target.value)}
+            onChange={(e) => {
+              setSelectedLanguage(e.target.value);
+              if (isListening) {
+                stopListening();
+              }
+            }}
             className="min-h-[60px] px-4 py-2 bg-warmWhite text-elderBlue-950 font-bold text-xl border-3 border-elderBlue-300 rounded-xl focus:ring-4 focus:ring-elderBlue-400 focus:outline-none cursor-pointer"
           >
             {SUPPORTED_LANGUAGES.map((lang) => (
@@ -167,11 +206,83 @@ export const SeniorVoiceAssistant = ({ onAssistantResponse }) => {
         </p>
       </div>
 
+      {/* Fallback Notice Banner if STT is unavailable or errored */}
+      {fallbackInfo.active && (
+        <div className="mb-6 p-4 rounded-2xl bg-amber-50 border-3 border-amber-300 text-elderBlue-950 flex items-start gap-3">
+          <AlertCircle className="w-7 h-7 text-amber-700 flex-shrink-0 mt-0.5" aria-hidden="true" />
+          <div>
+            <p className="text-lg font-bold text-amber-900">Voice Input Fallback Active</p>
+            <p className="text-base text-elderBlue-900 mt-1">
+              {fallbackInfo.message || 'Microphone access is unavailable. You can use the manual text controls below.'}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Input Trigger & Quick Prompts Fallback Area */}
+      <div className="mt-2 mb-6 p-5 rounded-2xl bg-elderBlue-50 border-2 border-elderBlue-200">
+        <div className="flex items-center gap-2 mb-3 text-elderBlue-800 font-bold text-lg">
+          <MessageSquare className="w-5 h-5 text-elderBlue-700" aria-hidden="true" />
+          <span>Manual Input & Quick Fallback Options:</span>
+        </div>
+
+        <form onSubmit={handleManualSubmit} className="flex flex-col sm:flex-row gap-3">
+          <input
+            type="text"
+            value={manualInputText}
+            onChange={(e) => setManualInputText(e.target.value)}
+            placeholder="Type your question or request here..."
+            disabled={isProcessing}
+            className="flex-1 min-h-[56px] px-4 py-3 bg-warmWhite text-elderBlue-950 font-semibold text-lg border-2 border-elderBlue-300 rounded-xl focus:ring-4 focus:ring-elderBlue-400 focus:outline-none disabled:opacity-50"
+          />
+          <button
+            type="submit"
+            disabled={!manualInputText.trim() || isProcessing}
+            className="min-h-[56px] px-6 py-3 bg-elderBlue-800 hover:bg-elderBlue-900 disabled:bg-elderBlue-300 text-warmWhite font-bold text-lg rounded-xl flex items-center justify-center gap-2 transition-colors focus:ring-4 focus:ring-elderBlue-400 focus:outline-none"
+          >
+            <Send className="w-5 h-5" aria-hidden="true" />
+            <span>Send</span>
+          </button>
+        </form>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <span className="text-sm font-bold text-elderBlue-700 self-center">Quick Suggestions:</span>
+          <button
+            type="button"
+            onClick={() => handleQuickPrompt('How can I contact my family?')}
+            disabled={isProcessing}
+            className="px-3 py-1.5 bg-warmWhite hover:bg-elderBlue-100 border border-elderBlue-300 rounded-lg text-sm font-semibold text-elderBlue-900 transition-colors"
+          >
+            "How can I contact my family?"
+          </button>
+          <button
+            type="button"
+            onClick={() => handleQuickPrompt('What medications should I take today?')}
+            disabled={isProcessing}
+            className="px-3 py-1.5 bg-warmWhite hover:bg-elderBlue-100 border border-elderBlue-300 rounded-lg text-sm font-semibold text-elderBlue-900 transition-colors"
+          >
+            "What medications today?"
+          </button>
+          <button
+            type="button"
+            onClick={() => handleQuickPrompt('I need assistance right now.')}
+            disabled={isProcessing}
+            className="px-3 py-1.5 bg-warmWhite hover:bg-elderBlue-100 border border-elderBlue-300 rounded-lg text-sm font-semibold text-elderBlue-900 transition-colors"
+          >
+            "I need assistance"
+          </button>
+        </div>
+      </div>
+
       {/* Spoken Text Display */}
-      {transcript && (
+      {(transcript || interimTranscript) && (
         <div className="mt-4 p-5 rounded-2xl bg-elderBlue-50 border-3 border-elderBlue-200">
-          <p className="text-lg font-bold text-elderBlue-700 uppercase tracking-wider">You Said:</p>
-          <p className="text-2xl font-bold text-elderBlue-950 mt-1">"{transcript}"</p>
+          <p className="text-lg font-bold text-elderBlue-700 uppercase tracking-wider">
+            {isListening ? 'Listening (Speaking...)' : 'You Said:'}
+          </p>
+          <p className="text-2xl font-bold text-elderBlue-950 mt-1">
+            "{transcript || interimTranscript}"
+          </p>
         </div>
       )}
 
@@ -196,4 +307,3 @@ export const SeniorVoiceAssistant = ({ onAssistantResponse }) => {
 };
 
 export default SeniorVoiceAssistant;
-

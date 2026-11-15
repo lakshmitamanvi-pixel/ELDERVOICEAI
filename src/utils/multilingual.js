@@ -1,7 +1,8 @@
 export const SUPPORTED_LANGUAGES = [
   { code: 'en-US', label: 'English (US)', flag: '🇺🇸', native: 'English' },
-  { code: 'es-ES', label: 'Spanish', flag: '🇪🇸', native: 'Español' },
   { code: 'hi-IN', label: 'Hindi', flag: '🇮🇳', native: 'हिन्दी' },
+  { code: 'te-IN', label: 'Telugu', flag: '🇮🇳', native: 'తెలుగు' },
+  { code: 'es-ES', label: 'Spanish', flag: '🇪🇸', native: 'Español' },
   { code: 'fr-FR', label: 'French', flag: '🇫🇷', native: 'Français' },
   { code: 'de-DE', label: 'German', flag: '🇩🇪', native: 'Deutsch' },
   { code: 'zh-CN', label: 'Mandarin', flag: '🇨🇳', native: '中文' },
@@ -46,6 +47,19 @@ export const MULTILINGUAL_STRINGS = {
     caretakerTitle: 'देखभालकर्ता डैशबोर्ड',
     statusNormal: 'सब सामान्य है',
     statusAlert: 'ध्यान देने की आवश्यकता है',
+  },
+  'te-IN': {
+    greeting: 'నమస్కారం! ఈరోజు మీకు ఎలా ఉంది?',
+    pressToSpeak: 'మాట్లాడటానికి నొక్కండి',
+    listening: 'మీ మాటలను వింటున్నాము...',
+    emergencyAlert: 'అత్యవసర సహాయం (SOS)',
+    confirmAlert: 'కుటుంబానికి మరియు సంరక్షకుడికి తెలియజేస్తున్నాం',
+    medicationReminder: 'నేటి మందులు',
+    callCaretaker: 'సంరక్షకుడిని సంప్రదించండి',
+    helpPrompt: 'నాకు సహాయం కావాలి',
+    caretakerTitle: 'సంరక్షకుని డాష్‌బోర్డ్',
+    statusNormal: 'అన్నీ సాధారణ స్థితిలో ఉన్నాయి',
+    statusAlert: 'శ్రద్ధ అవసరం',
   },
 };
 
