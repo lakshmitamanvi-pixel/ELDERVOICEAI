@@ -2,14 +2,16 @@ import { GoogleGenAI, Type } from '@google/genai';
 
 /**
  * Single source for the Gemini model name read from environment.
- * Fallback: "gemini-2.5-flash".
+ * Default: "gemini-3.8-flash".
  */
 export const MODEL =
   (typeof import.meta !== 'undefined' && import.meta?.env?.VITE_GEMINI_MODEL) ||
   (typeof process !== 'undefined' && process?.env?.VITE_GEMINI_MODEL) ||
-  'gemini-2.5-flash';
+  'gemini-3.8-flash';
 
-export const MODELS = Array.from(new Set([MODEL, 'gemini-2.5-flash']));
+const FALLBACK_MODEL = MODEL === 'gemini-3.5-flash' ? 'gemini-3.5-flash-lite' : 'gemini-3.5-flash';
+
+export const MODELS = [MODEL, FALLBACK_MODEL];
 
 /**
  * Supported intent classifications.

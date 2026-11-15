@@ -44,7 +44,7 @@ ElderVoice AI uses a layered processing pipeline that couples local regex checks
 
 1. **Voice Input**: The user speaks into the microphone (or enters text into the fallback input field).
 2. **Transcription**: The Web Speech API converts audio into a text transcript.
-3. **Emergency Regex Gate**: The transcript is checked locally against `EMERGENCY_WORDS` (covering English, Hindi, and Telugu terms such as *help*, *chest pain*, *cannot breathe*, *fell*, *बचाओ*, *मदद*, *సహాయం*). If matched, the system triggers the emergency response immediately without making any API call.
+3. **Emergency Regex Gate**: The transcript is checked locally against `EMERGENCY_WORDS` (covering English, Hindi, and Telugu terms such as _help_, _chest pain_, _cannot breathe_, _fell_, _बचाओ_, _मदद_, _సహాయం_). If matched, the system triggers the emergency response immediately without making any API call.
 4. **Gemini Intent Classifier**: If no emergency keywords match, the transcript is sent to Google Gemini using a strict system prompt and JSON schema (`responseSchema`). The model returns only `{ intent, language }`.
 5. **Fixed Reply Lookup**: The application retrieves the corresponding fixed response from the internal `REPLIES` map based on the detected intent and language.
 6. **Feedback & Action**: The fixed reply is read aloud using speech synthesis (at a measured 0.9x speed for senior comprehension) and triggers contextual UI actions (such as scrolling to and highlighting relevant sections).
@@ -52,7 +52,7 @@ ElderVoice AI uses a layered processing pipeline that couples local regex checks
 ### Design Choice: Classification Only
 
 > **Design Choice**: The LLM classifies intent and language only; the application writes the replies.
-> 
+>
 > The Gemini model is strictly prohibited from generating freeform medical advice, diagnoses, or conversational text. Keeping reply generation deterministic in application code eliminates hallucinations, prevents medical misinformation, and guarantees predictable, safe output for seniors.
 
 ### Architecture Flowchart
@@ -78,17 +78,17 @@ flowchart TD
 
 ## Tech Stack
 
-| Category | Technology | Version | Purpose |
-| :--- | :--- | :--- | :--- |
-| **UI Framework** | React | 18.3.1 | Core component architecture and interface state |
-| **Build Tool** | Vite | 5.4.11 | Development server and production bundling |
-| **Styling** | Tailwind CSS | 3.4.16 | High-contrast WCAG AAA accessible styles |
-| **AI SDK** | `@google/genai` | 3.3.0 | Intent and language classification with Gemini models |
-| **Speech-to-Text** | Web Speech API (`SpeechRecognition`) | Native | Browser-native speech recognition in en-US, hi-IN, te-IN |
-| **Text-to-Speech** | Web Speech API (`SpeechSynthesis`) | Native | Slower-rate (0.9x) speech output for clarity |
-| **Database & Sync** | Firebase (Firestore & Auth) | 10.14.1 | Profile, medication, and appointment persistence |
-| **Alert Notifications** | EmailJS (`emailjs-com`) | 3.2.0 | Caregiver email notification dispatch |
-| **Icons** | Lucide React | 0.460.0 | Accessible iconography |
+| Category                | Technology                           | Version | Purpose                                                  |
+| :---------------------- | :----------------------------------- | :------ | :------------------------------------------------------- |
+| **UI Framework**        | React                                | 18.3.1  | Core component architecture and interface state          |
+| **Build Tool**          | Vite                                 | 5.4.11  | Development server and production bundling               |
+| **Styling**             | Tailwind CSS                         | 3.4.16  | High-contrast WCAG AAA accessible styles                 |
+| **AI SDK**              | `@google/genai`                      | 3.3.0   | Intent and language classification with Gemini models    |
+| **Speech-to-Text**      | Web Speech API (`SpeechRecognition`) | Native  | Browser-native speech recognition in en-US, hi-IN, te-IN |
+| **Text-to-Speech**      | Web Speech API (`SpeechSynthesis`)   | Native  | Slower-rate (0.9x) speech output for clarity             |
+| **Database & Sync**     | Firebase (Firestore & Auth)          | 10.14.1 | Profile, medication, and appointment persistence         |
+| **Alert Notifications** | EmailJS (`emailjs-com`)              | 3.2.0   | Caregiver email notification dispatch                    |
+| **Icons**               | Lucide React                         | 0.460.0 | Accessible iconography                                   |
 
 ---
 
@@ -153,35 +153,44 @@ ELDERVOICEAI/
 ### Installation & Execution
 
 1. **Clone the repository**:
+
    ```bash
    git clone https://github.com/lakshmitamanvi-pixel/ELDERVOICEAI.git
    cd ELDERVOICEAI
    ```
 
 2. **Install dependencies**:
+
    ```bash
    npm install
    ```
 
 3. **Configure environment variables**:
    Create a `.env` file from `.env.example`:
+
    ```bash
    cp .env.example .env
    ```
+
    Set your Gemini credentials in `.env`:
+
    ```env
    VITE_GEMINI_API_KEY=your_gemini_api_key_here
-   VITE_GEMINI_MODEL=gemini-2.5-flash
+   VITE_GEMINI_MODEL=gemini-3.5-flash
    ```
-   *(Firebase and EmailJS variables are optional; if omitted, the app runs in demo mode using `localStorage` caching and simulated alert logging).*
+
+   _(Firebase and EmailJS variables are optional; if omitted, the app runs in demo mode using `localStorage` caching and simulated alert logging)._
 
 4. **Start development server**:
+
    ```bash
    npm run dev
    ```
+
    Open `http://localhost:3000` in your browser.
 
 5. **Build for production**:
+
    ```bash
    npm run build
    ```
@@ -209,11 +218,11 @@ VITE_GEMINI_API_KEY=your_gemini_api_key_here
 VITE_GEMINI_MODEL=gemini-3.8-flash
 ```
 
-| Variable | Required | Description |
-| :--- | :--- | :--- |
-| `VITE_GEMINI_API_KEY` | Yes (for AI voice) | API key for Gemini model classification |
-| `VITE_GEMINI_MODEL` | No (default: `gemini-2.5-flash`) | Primary model name (e.g. `gemini-2.5-flash`, `gemini-3.8-flash`) |
-| `VITE_FIREBASE_*` | No | Firebase project credentials (falls back to local storage if omitted) |
+| Variable              | Required                         | Description                                                           |
+| :-------------------- | :------------------------------- | :-------------------------------------------------------------------- |
+| `VITE_GEMINI_API_KEY` | Yes (for AI voice)               | API key for Gemini model classification                               |
+| `VITE_GEMINI_MODEL`   | No (default: `gemini-3.5-flash`) | Primary model name (e.g. `gemini-3.5-flash`, `gemini-3.8-flash`)      |
+| `VITE_FIREBASE_*`     | No                               | Firebase project credentials (falls back to local storage if omitted) |
 
 ---
 
@@ -221,7 +230,7 @@ VITE_GEMINI_MODEL=gemini-3.8-flash
 
 - **Pre-API Emergency Regex**: Critical safety phrases (`help`, `emergency`, `urgent`, `chest pain`, `cannot breathe`, `fell`, `ambulance`, `बचाओ`, `मदद`, `సహాయం`, `అత్యవసరం`) are intercepted locally before making network requests. This ensures immediate emergency routing with 0ms network latency.
 - **Offline & Standalone SOS**: The `EmergencyAlertButton` component functions independently of the Gemini API. Even during network disconnects or API downtime, pressing the button triggers visual alerts and local dispatch logging.
-- **Model Fallback Chain**: The `callWithFallback` routine attempts classification using the configured primary model (`VITE_GEMINI_MODEL`) and automatically rolls over to secondary candidates (such as `gemini-2.5-flash`) if the primary model fails.
+- **Model Fallback Chain**: The `callWithFallback` routine attempts classification using the configured primary model (`VITE_GEMINI_MODEL`) and automatically rolls over to secondary candidates (such as `gemini-3.5-flash`) if the primary model fails.
 - **Error & Rate-Limit Handling (429/503)**: Rate limit errors (`429`), server errors (`500`, `503`), and unavailable models (`404`) are caught without unhandled rejections. The system falls back to `SAFE_FALLBACK_RESPONSE` (`unknown` intent), keeping the UI responsive and encouraging the senior to repeat their request.
 - **Speech Engine Resilience**: When browser speech recognition is unavailable or permission is denied, the application surfaces a diagnostic status message and provides an accessible text input field as a fallback.
 
@@ -250,7 +259,9 @@ VITE_GEMINI_MODEL=gemini-3.8-flash
 ## Team & License
 
 ### Team
+
 - **ElderVoice AI Team**
 
 ### License
+
 This project is licensed under the [MIT License](LICENSE).
