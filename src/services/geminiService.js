@@ -9,6 +9,8 @@ export const MODEL =
   (typeof process !== 'undefined' && process?.env?.VITE_GEMINI_MODEL) ||
   'gemini-2.5-flash';
 
+export const MODELS = Array.from(new Set([MODEL, 'gemini-2.5-flash']));
+
 /**
  * Supported intent classifications.
  */
@@ -186,6 +188,36 @@ const detectLanguageFast = (text = '') => {
 };
 
 /**
+ * Calls Gemini generateContent with automatic fallback across candidate MODELS.
+ *
+ * @param {object} params Parameters passed to client.models.generateContent (contents, config, etc.)
+ * @returns {Promise<any>}
+ */
+export async function callWithFallback(params) {
+  const client = getClient();
+  if (!client) {
+    throw new Error('[geminiService] Cannot initialize client: VITE_GEMINI_API_KEY is not defined.');
+  }
+
+  let lastError;
+  for (const m of MODELS) {
+    try {
+      return await client.models.generateContent({ ...params, model: m });
+    } catch (err) {
+      lastError = err;
+      const status = Number(err?.status ?? err?.response?.status ?? err?.statusCode);
+      if (status === 429 || status === 500 || status === 503 || status === 404) {
+        console.warn(`[geminiService] Model ${m} failed with status ${err?.status || status}: ${err?.message || err}`);
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw lastError;
+}
+
+/**
  * Main voice handling function:
  * 1. Checks EMERGENCY_WORDS regex locally BEFORE any API call.
  * 2. Uses Gemini as intent/language classifier only.
@@ -224,8 +256,7 @@ export async function handleVoice(transcript) {
   }
 
   try {
-    const response = await client.models.generateContent({
-      model: MODEL,
+    const response = await callWithFallback({
       contents: cleanText,
       config: {
         systemInstruction: SYSTEM,
