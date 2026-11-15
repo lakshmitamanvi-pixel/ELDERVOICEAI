@@ -1,38 +1,121 @@
 import { GoogleGenAI, Type } from '@google/genai';
 
 /**
- * Fallback response object returned whenever an error, timeout, or parsing failure occurs.
+ * Single source for the Gemini model name read from environment.
+ * Fallback: "gemini-2.5-flash".
  */
-export const SAFE_FALLBACK_RESPONSE = Object.freeze({
-  intent: 'general_chat',
-  replyText: "I'm having a little trouble connecting right now, but I am here for you.",
-  actionTrigger: {
-    type: 'NONE',
-    targetId: null,
+export const MODEL =
+  (typeof import.meta !== 'undefined' && import.meta?.env?.VITE_GEMINI_MODEL) ||
+  (typeof process !== 'undefined' && process?.env?.VITE_GEMINI_MODEL) ||
+  'gemini-2.5-flash';
+
+/**
+ * Supported intent classifications.
+ */
+export const INTENTS = [
+  'medication',
+  'emergency',
+  'call_family',
+  'appointment',
+  'symptom',
+  'greeting',
+  'unknown',
+];
+
+/**
+ * Fixed deterministic replies mapped by intent and language.
+ * Note: Hindi (hi) and Telugu (te) translations below - needs native-speaker review
+ */
+export const REPLIES = {
+  medication: {
+    en: 'Please refer the medicines section.',
+    hi: 'कृपया दवाई वाला अनुभाग देखें।',
+    te: 'దయచేసి మందుల విభాగాన్ని చూడండి.',
   },
-});
+  emergency: {
+    en: 'Press the red button on top of the screen for SOS.',
+    hi: 'आपातकालीन सहायता (SOS) के लिए स्क्रीन के ऊपर लाल बटन दबाएं।',
+    te: 'అత్యవసర సహాయం (SOS) కోసం స్క్రీన్ పైభాగంలో ఉన్న ఎరుపు బటన్‌ను నొక్కండి.',
+  },
+  call_family: {
+    en: 'You can call your daughter Sarah at (555) 912-3456 or press SOS to alert family.',
+    hi: 'आप अपनी बेटी सारा को (555) 912-3456 पर कॉल कर सकते हैं या परिवार को सूचित करने के लिए SOS दबाएं।',
+    te: 'మీరు మీ కుమార్తె సారాకు (555) 912-3456 నంబర్‌లో కాల్ చేయవచ్చు లేదా కుటుంబానికి తెలియజేయడానికి SOS నొక్కండి.',
+  },
+  appointment: {
+    en: 'Please check your upcoming appointments in the schedule section.',
+    hi: 'कृपया शेड्यूल अनुभाग में अपनी आगामी अपॉइंटमेंट देखें।',
+    te: 'దయచేసి షెడ్యూల్ విభాగంలో మీ రాబోయే అపాయింట్‌మెంట్‌లను తనిఖీ చేయండి.',
+  },
+  symptom: {
+    en: 'Please consult your doctor immediately regarding any discomfort. Do not change medications on your own.',
+    hi: 'कृपया किसी भी परेशानी के लिए तुरंत अपने डॉक्टर से संपर्क करें। अपने आप कोई दवा न लें।',
+    te: 'ఏదైనా అసౌకర్యం ఉంటే వెంటనే మీ వైద్యుడిని సంప్రదించండి. మీ స్వంతంగా మందులు మార్చవద్దు.',
+  },
+  greeting: {
+    en: 'Hello! I am right here with you. How can I help you today?',
+    hi: 'नमस्ते! मैं आपके साथ यहीं हूँ। आज मैं आपकी क्या मदद कर सकता हूँ?',
+    te: 'నమస్కారం! నేను మీతోనే ఉన్నాను. ఈరోజు నేను మీకు ఎలా సహాయపడగలను?',
+  },
+  unknown: {
+    en: 'I am listening. Please speak again whenever you are ready.',
+    hi: 'मैं सुन रहा हूँ। जब भी आप तैयार हों, कृपया फिर से बोलें।',
+    te: 'నేను వింటున్నాను. మీరు సిద్ధంగా ఉన్నప్పుడు దయచేసి మళ్ళీ మాట్లాడండి.',
+  },
+};
 
 /**
- * Valid allowed values for intent and action trigger types.
+ * Emergency trigger keywords in English, Hindi, and Telugu.
+ * Checked BEFORE making any API call to guarantee instantaneous emergency response.
  */
-const VALID_INTENTS = new Set([
-  'medication_confirmation',
-  'medication_query',
-  'appointment_query',
-  'memory_query',
-  'general_chat',
-]);
-
-const VALID_ACTION_TYPES = new Set([
-  'CONFIRM_MEDICATION',
-  'TRIGGER_ALERT',
-  'NONE',
-]);
+export const EMERGENCY_WORDS =
+  /\b(help|emergency|urgent|right now|chest pain|can'?t breathe|cannot breathe|fell|fallen|ambulance)\b|बचाओ|मदद|सहायता|సహాయం|అత్యవసరం/i;
 
 /**
- * Milliseconds to wait before timing out a Gemini API request.
+ * Strict System Prompt: Classifier ONLY.
+ * Model outputs intent and language only, NEVER writes responses.
  */
-const REQUEST_TIMEOUT_MS = 20000;
+export const SYSTEM = `You are a strict intent and language classifier for ElderVoice AI, a voice assistant for senior citizens.
+Your ONLY role is to classify the user's transcript into exactly one intent and detect the spoken language.
+NEVER generate conversational replies, advice, answers, or commentary. Output valid JSON adhering strictly to the schema.
+
+INTENTS & DEFINITIONS:
+1. medication: Inquiries, reminders, or questions about pills, prescriptions, medicines, schedules, or dosages.
+   Example: "What medications should I take today?"
+2. emergency: Urgent physical distress, acute pain, falls, breathlessness, accidents, feeling unsafe, immediate danger, or SOS help requests.
+   Example: "I need assistance right now"
+3. call_family: Asking to call, contact, reach, talk to, or message family members, daughters, sons, or caretakers.
+   Example: "How do I reach my family?"
+4. appointment: Inquiries or schedule checks regarding doctor visits, clinic appointments, medical checkups, or consultations.
+   Example: "When is my next doctor appointment?"
+5. symptom: Physical complaints, feeling sick, headache, nausea, mild pain, dizziness, fatigue, or reporting health symptoms.
+   Example: "I have a slight headache"
+6. greeting: Polite hellos, good morning, greetings, thank you, pleasantries, or companion chat openings.
+   Example: "Good morning, how are you?"
+7. unknown: Unclear input, background chatter, irrelevant statements, or statements not fitting any intent above.
+   Example: "The sky is blue today"
+
+CLASSIFICATION RULES:
+- RULE: If you are unsure between "emergency" and ANY other intent, you MUST choose "emergency". Senior safety is paramount.
+- Output language as "en" (English), "hi" (Hindi), or "te" (Telugu). If uncertain or mixed, default to "en".`;
+
+/**
+ * JSON Schema enforcing intent and language classification only.
+ */
+export const RESPONSE_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    intent: {
+      type: Type.STRING,
+      enum: INTENTS,
+    },
+    language: {
+      type: Type.STRING,
+      enum: ['en', 'hi', 'te'],
+    },
+  },
+  required: ['intent', 'language'],
+};
 
 /**
  * Safely retrieve the Gemini API key across browser Vite and Node environments.
@@ -59,11 +142,11 @@ const apiKey = getApiKey();
 if (!apiKey) {
   console.error(
     '[geminiService] Missing VITE_GEMINI_API_KEY: Google Gemini API key is not configured in environment variables. ' +
-    'Please set VITE_GEMINI_API_KEY in your .env file to enable AI voice entity extraction and intelligence.'
+    'Please set VITE_GEMINI_API_KEY in your .env file.'
   );
 }
 
-// Safely initialize the client instance
+// Safely initialize the client instance without duplicate creations
 let aiClient = null;
 try {
   if (apiKey) {
@@ -75,7 +158,7 @@ try {
 }
 
 /**
- * Helper to get or lazily reinitialize the GenAI client if needed.
+ * Helper to get or lazily initialize the GenAI client.
  */
 const getClient = () => {
   if (aiClient) return aiClient;
@@ -94,323 +177,64 @@ const getClient = () => {
 };
 
 /**
- * JSON Schema enforcing strict structured response from Gemini 3.8 Flash.
+ * Quick script/character-based language detection fallback.
  */
-export const VOICE_COMMAND_RESPONSE_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    intent: {
-      type: Type.STRING,
-      enum: [
-        'medication_confirmation',
-        'medication_query',
-        'appointment_query',
-        'memory_query',
-        'general_chat',
-      ],
-      description: 'The classified user intent.',
-    },
-    replyText: {
-      type: Type.STRING,
-      description: 'A clear, warm, simple response string matching the active language (1-3 sentences suitable for elderly text-to-speech).',
-    },
-    actionTrigger: {
-      type: Type.OBJECT,
-      properties: {
-        type: {
-          type: Type.STRING,
-          enum: ['CONFIRM_MEDICATION', 'TRIGGER_ALERT', 'NONE'],
-          description: 'Action trigger type based on explicit intent.',
-        },
-        targetId: {
-          type: Type.STRING,
-          nullable: true,
-          description: 'Medication ID if CONFIRM_MEDICATION, alert identifier if TRIGGER_ALERT, or null if NONE.',
-        },
-      },
-      required: ['type'],
-    },
-  },
-  required: ['intent', 'replyText', 'actionTrigger'],
+const detectLanguageFast = (text = '') => {
+  if (/[\u0C00-\u0C7F]/.test(text)) return 'te';
+  if (/[\u0900-\u097F]/.test(text)) return 'hi';
+  return 'en';
 };
 
 /**
- * Engineers a strict system instruction module that injects verified Firestore records
- * as immutable context and sets rigorous anti-hallucination guardrails.
- */
-export function buildSystemInstruction(
-  userProfile = {},
-  medications = [],
-  appointments = [],
-  currentLang = 'en-US'
-) {
-  const seniorName = userProfile?.preferredName || userProfile?.fullName || 'Senior User';
-  const fullName = userProfile?.fullName || seniorName;
-  const age = userProfile?.age ? `${userProfile.age} years old` : 'Not recorded';
-  const bloodType = userProfile?.bloodType || 'Not recorded';
-  const allergies = userProfile?.allergies || 'None recorded';
-
-  const medicalNotes = userProfile?.medicalNotes || {};
-  const conditions = medicalNotes.conditions || userProfile?.conditions || 'None recorded';
-  const dietary = medicalNotes.dietaryRestrictions || userProfile?.dietaryRestrictions || 'None recorded';
-  const physician = medicalNotes.primaryPhysician
-    ? `${medicalNotes.primaryPhysician}${medicalNotes.physicianPhone ? ` (Phone: ${medicalNotes.physicianPhone})` : ''}`
-    : 'Not recorded';
-
-  const emergencyContacts = Array.isArray(userProfile?.emergencyContacts) && userProfile.emergencyContacts.length > 0
-    ? userProfile.emergencyContacts
-        .map((c) => `- ${c.name} (${c.relationship || 'Emergency Contact'}): ${c.phone || 'N/A'}${c.isPrimary ? ' [PRIMARY]' : ''}`)
-        .join('\n')
-    : 'None recorded';
-
-  const memoryVault = userProfile?.memoryVault || {};
-  const familyMembers = Array.isArray(memoryVault.familyMembers) && memoryVault.familyMembers.length > 0
-    ? memoryVault.familyMembers.map((f) => `- ${f.name} (${f.relationship}): ${f.note || ''}`).join('\n')
-    : 'None recorded';
-
-  const personalFacts = Array.isArray(memoryVault.personalFacts) && memoryVault.personalFacts.length > 0
-    ? memoryVault.personalFacts.map((p) => `- [${p.category || 'Fact'}]: ${p.text || ''}`).join('\n')
-    : 'None recorded';
-
-  const caretakerNotes = Array.isArray(memoryVault.caretakerNotes) && memoryVault.caretakerNotes.length > 0
-    ? memoryVault.caretakerNotes.map((n) => `- [${n.title || 'Note'}]: ${n.text || ''}`).join('\n')
-    : 'None recorded';
-
-  const medsList = Array.isArray(medications) && medications.length > 0
-    ? medications
-        .map(
-          (m) =>
-            `- ID: "${m.id}", Medicine: "${m.name}", Dosage: "${m.dosage || 'N/A'}", Scheduled Time: "${m.scheduleTime || 'N/A'}", Status: "${m.status || 'pending'}", Instructions: "${m.instructions || 'Take as prescribed'}"`
-        )
-        .join('\n')
-    : 'No active medications registered.';
-
-  const aptsList = Array.isArray(appointments) && appointments.length > 0
-    ? appointments
-        .map(
-          (a) =>
-            `- ID: "${a.id}", Doctor: "${a.doctorName || 'Doctor'}", Specialty: "${a.specialty || 'General'}", Scheduled Time: "${a.timestamp || 'N/A'}", Location: "${a.location || 'N/A'}", Notes: "${a.notes || 'None'}", Status: "${a.status || 'upcoming'}"`
-        )
-        .join('\n')
-    : 'No upcoming appointments scheduled.';
-
-  const languageDirectives = {
-    'en-US': 'Respond strictly in English. Use clear, warm, gentle, simple, and supportive words.',
-    'hi-IN': 'Respond strictly in Hindi (हिन्दी) using Devanagari script. Use respectful, warm, and natural conversational Hindi (e.g. use "आप" rather than "तुम").',
-    'te-IN': 'Respond strictly in Telugu (తెలుగు) using Telugu script. Use polite, affectionate, and natural conversational Telugu (గౌరవప్రదమైన మాటలు).',
-    'es-ES': 'Respond strictly in Spanish (Español). Use warm, simple, and gentle vocabulary.',
-  };
-  const activeLangRule = languageDirectives[currentLang] || `Respond strictly in the language matching code "${currentLang}".`;
-
-  return `You are ElderVoice AI, a compassionate, hyper-reliable, patient, and loving voice companion designed specifically for elderly individuals.
-
-### IMMUTABLE VERIFIED GROUNDING CONTEXT (FIRESTORE RECORDS):
---- SENIOR PROFILE ---
-- Preferred / Full Name: ${seniorName} (${fullName})
-- Age: ${age}
-- Blood Type: ${bloodType}
-- Documented Allergies: ${allergies}
-- Medical Conditions: ${conditions}
-- Dietary Restrictions: ${dietary}
-- Primary Physician: ${physician}
-
---- EMERGENCY CONTACTS ---
-${emergencyContacts}
-
---- MEMORY VAULT ---
-Family Members:
-${familyMembers}
-
-Personal Facts & Preferences:
-${personalFacts}
-
-Caretaker Care Guidance:
-${caretakerNotes}
-
---- ACTIVE MEDICATIONS SCHEDULE ---
-${medsList}
-
---- UPCOMING APPOINTMENTS ---
-${aptsList}
-----------------------------------------
-
-### RIGOROUS OPERATIONAL GUARDRAILS:
-1. ABSOLUTE GROUNDING & ZERO HALLUCINATION:
-   - You must ONLY use the verified information above.
-   - NEVER invent or hallucinate family members, dates, medical conditions, medications, or memories not present in the verified context.
-   - If asked about information not in these records, gently inform the senior that you do not have that specific detail recorded and suggest checking with their caretaker or doctor.
-
-2. MEDICATION CONSUMPTION CONFIRMATION RULE:
-   - NEVER assume or infer that a medication was taken unless the senior EXPLICITLY and unequivocally states in their voice command that they have taken, swallowed, or consumed it (e.g., "I took my Lisinopril", "I just swallowed my morning pill", "Maine dawaai le li", "నేను మందులు వేసుకున్నాను").
-   - Questions like "Did I take my medicine?", "What pill do I need now?", or "Is it time for my medication?" are queries, NOT confirmations.
-   - When an explicit confirmation is detected:
-     * Set "intent" to "medication_confirmation".
-     * Set "actionTrigger.type" to "CONFIRM_MEDICATION".
-     * Set "actionTrigger.targetId" to the EXACT ID of the matching medication from the active medications list (e.g., "med-1"). If ambiguous or if multiple medications exist without specification, target the current pending medication scheduled for this time, or set to null if impossible to identify.
-     * In "replyText", warmly acknowledge and congratulate them for taking the medication.
-
-3. EMERGENCY & DISTRESS TRIGGER RULE:
-   - If the senior indicates pain, falling, breathlessness, confusion, feeling unsafe, emergency, or asks to alert family/caretaker/doctor immediately:
-     * Set "actionTrigger.type" to "TRIGGER_ALERT".
-     * Set "actionTrigger.targetId" to "emergency_sos".
-     * Provide an immediate, soothing, calming response reassuring them that help is being alerted right away.
-
-4. INTENT CLASSIFICATION RULES:
-   - "medication_confirmation": Senior explicitly confirms taking medication.
-   - "medication_query": Senior asks about medicines, dosages, schedules, instructions, or whether they took their medicine.
-   - "appointment_query": Senior asks about doctor visits, clinics, calendar, or upcoming appointments.
-   - "memory_query": Senior asks about their family, career, favorite songs, memories, or notes from the memory vault.
-   - "general_chat": Greetings, chit-chat, weather, feelings, companionship, or anything else.
-
-5. LANGUAGE & VOICE OUTPUT REQUIREMENTS:
-   - Active Language Code: "${currentLang}".
-   - ${activeLangRule}
-   - Speech-friendly: "replyText" will be read aloud by Text-to-Speech (TTS). Keep it between 1 to 3 short, gentle sentences.
-   - NEVER include markdown characters (such as *, #, _, -, bullets), emojis, or technical codes in "replyText" because screen readers and speech synthesizers pronounce them literally.
-
-6. JSON SCHEMA ENFORCEMENT:
-   - You must output pure JSON adhering strictly to the schema provided.`;
-}
-
-/**
- * Cleans potential markdown formatting, code block markers, or trailing characters from JSON text.
- */
-const sanitizeJsonString = (raw) => {
-  if (typeof raw !== 'string') return '';
-  let cleaned = raw.trim();
-
-  // Strip code block fences if present: ```json ... ``` or ``` ... ```
-  if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '');
-    cleaned = cleaned.replace(/\s*```$/, '');
-    cleaned = cleaned.trim();
-  }
-
-  // Extract content between first { and last }
-  const firstBrace = cleaned.indexOf('{');
-  const lastBrace = cleaned.lastIndexOf('}');
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace >= firstBrace) {
-    cleaned = cleaned.slice(firstBrace, lastBrace + 1);
-  }
-
-  return cleaned;
-};
-
-/**
- * Normalizes and validates the parsed JSON object against the expected schema.
- */
-const normalizeParsedResponse = (parsed) => {
-  if (!parsed || typeof parsed !== 'object') {
-    return { ...SAFE_FALLBACK_RESPONSE };
-  }
-
-  const intent = VALID_INTENTS.has(parsed.intent)
-    ? parsed.intent
-    : 'general_chat';
-
-  const replyText = typeof parsed.replyText === 'string' && parsed.replyText.trim().length > 0
-    ? parsed.replyText.trim()
-    : SAFE_FALLBACK_RESPONSE.replyText;
-
-  const rawAction = parsed.actionTrigger && typeof parsed.actionTrigger === 'object'
-    ? parsed.actionTrigger
-    : {};
-
-  const actionType = VALID_ACTION_TYPES.has(rawAction.type)
-    ? rawAction.type
-    : 'NONE';
-
-  let targetId = null;
-  if (
-    typeof rawAction.targetId === 'string' &&
-    rawAction.targetId.trim().length > 0 &&
-    rawAction.targetId.toLowerCase() !== 'null'
-  ) {
-    targetId = rawAction.targetId.trim();
-  }
-
-  return {
-    intent,
-    replyText,
-    actionTrigger: {
-      type: actionType,
-      targetId,
-    },
-  };
-};
-
-/**
- * Processes a voice transcript against Firestore context using Gemini 3.8 Flash,
- * extracting entities, classifying intent, and producing a validated JSON action payload.
+ * Main voice handling function:
+ * 1. Checks EMERGENCY_WORDS regex locally BEFORE any API call.
+ * 2. Uses Gemini as intent/language classifier only.
+ * 3. Returns { intent, reply } with fixed deterministic replies from REPLIES map.
+ * 4. Catches all errors safely without crashing or leaving UI blank.
  *
- * @param {string} transcript Spoken text transcript from the elderly user.
- * @param {object} [userProfile={}] Verified Firestore senior profile and memory vault.
- * @param {Array} [medications=[]] Active Firestore medication records.
- * @param {Array} [appointments=[]] Upcoming Firestore appointment records.
- * @param {string} [currentLang='en-US'] Current spoken language code (e.g. 'en-US', 'hi-IN', 'te-IN').
- * @returns {Promise<{
- *   intent: 'medication_confirmation' | 'medication_query' | 'appointment_query' | 'memory_query' | 'general_chat',
- *   replyText: string,
- *   actionTrigger: {
- *     type: 'CONFIRM_MEDICATION' | 'TRIGGER_ALERT' | 'NONE',
- *     targetId: string | null
- *   }
- * }>}
+ * @param {string} transcript Spoken transcript from the senior user.
+ * @returns {Promise<{ intent: string, reply: string }>}
  */
-export async function processVoiceCommand(
-  transcript,
-  userProfile = {},
-  medications = [],
-  appointments = [],
-  currentLang = 'en-US'
-) {
-  // If transcript is empty or whitespace, return fallback immediately without wasting an API call
+export async function handleVoice(transcript) {
   if (!transcript || typeof transcript !== 'string' || !transcript.trim()) {
-    return { ...SAFE_FALLBACK_RESPONSE };
+    return {
+      intent: 'unknown',
+      reply: REPLIES.unknown.en,
+    };
+  }
+
+  const cleanText = transcript.trim();
+  const fastLang = detectLanguageFast(cleanText);
+
+  // Run EMERGENCY_WORDS regex BEFORE the API call; on match return emergency reply immediately, no API call.
+  if (EMERGENCY_WORDS.test(cleanText)) {
+    return {
+      intent: 'emergency',
+      reply: REPLIES.emergency[fastLang] || REPLIES.emergency.en,
+    };
   }
 
   const client = getClient();
   if (!client) {
-    console.error('[geminiService] Cannot process voice command: GoogleGenAI client is uninitialized due to missing VITE_GEMINI_API_KEY.');
-    return { ...SAFE_FALLBACK_RESPONSE };
+    console.warn('[geminiService] Client uninitialized. Falling back to unknown reply.');
+    return {
+      intent: 'unknown',
+      reply: REPLIES.unknown[fastLang] || REPLIES.unknown.en,
+    };
   }
 
   try {
-    const systemInstruction = buildSystemInstruction(
-      userProfile,
-      medications,
-      appointments,
-      currentLang
-    );
-
-    // Prepare timeout race to ensure zero hanging or frozen states
-    let timeoutHandle;
-    const timeoutPromise = new Promise((_, reject) => {
-      timeoutHandle = setTimeout(() => {
-        reject(new Error(`Gemini API request timed out after ${REQUEST_TIMEOUT_MS}ms`));
-      }, REQUEST_TIMEOUT_MS);
-      if (timeoutHandle && typeof timeoutHandle.unref === 'function') {
-        timeoutHandle.unref();
-      }
-    });
-
-    const generatePromise = client.models.generateContent({
-      model: 'gemini-3.5-flash',
-      contents: transcript.trim(),
+    const response = await client.models.generateContent({
+      model: MODEL,
+      contents: cleanText,
       config: {
-        systemInstruction,
+        systemInstruction: SYSTEM,
+        temperature: 0,
         responseMimeType: 'application/json',
-        responseSchema: VOICE_COMMAND_RESPONSE_SCHEMA,
-        temperature: 0.2,
+        responseSchema: RESPONSE_SCHEMA,
       },
     });
 
-    const response = await Promise.race([generatePromise, timeoutPromise]);
-    if (timeoutHandle) {
-      clearTimeout(timeoutHandle);
-    }
-
-    // Safely extract generated raw text
     let rawText = '';
     if (typeof response?.text === 'string') {
       rawText = response.text;
@@ -419,32 +243,74 @@ export async function processVoiceCommand(
     }
 
     if (!rawText || !rawText.trim()) {
-      console.warn('[geminiService] Empty response received from Gemini model.');
-      return { ...SAFE_FALLBACK_RESPONSE };
+      return {
+        intent: 'unknown',
+        reply: REPLIES.unknown[fastLang] || REPLIES.unknown.en,
+      };
     }
 
-    // Clean and parse JSON bulletproofly
-    const cleanedJson = sanitizeJsonString(rawText);
-    let parsedJson;
+    let parsed;
     try {
-      parsedJson = JSON.parse(cleanedJson);
+      parsed = JSON.parse(rawText);
     } catch (parseErr) {
-      console.error('[geminiService] JSON parse error on Gemini output:', parseErr, 'Raw:', rawText);
-      return { ...SAFE_FALLBACK_RESPONSE };
+      console.error('[geminiService] Failed to parse JSON response:', parseErr, 'Raw:', rawText);
+      return {
+        intent: 'unknown',
+        reply: REPLIES.unknown[fastLang] || REPLIES.unknown.en,
+      };
     }
 
-    // Normalize and enforce schema guarantees
-    return normalizeParsedResponse(parsedJson);
+    const intent = INTENTS.includes(parsed?.intent) ? parsed.intent : 'unknown';
+    const lang = ['en', 'hi', 'te'].includes(parsed?.language) ? parsed.language : fastLang;
+
+    const reply = REPLIES[intent]?.[lang] ?? REPLIES[intent]?.en ?? REPLIES.unknown.en;
+
+    return {
+      intent,
+      reply,
+    };
   } catch (error) {
-    console.error('[geminiService] Voice command processing failure:', error?.message || error);
-    return { ...SAFE_FALLBACK_RESPONSE };
+    console.error(
+      `[geminiService] Error calling model '${MODEL}': status=${error?.status || 'unknown'}, message=${error?.message || error}`
+    );
+    return {
+      intent: 'unknown',
+      reply: REPLIES.unknown[fastLang] || REPLIES.unknown.en,
+    };
   }
 }
 
+/**
+ * Backwards compatibility adapter for processVoiceCommand callers.
+ */
+export async function processVoiceCommand(transcript) {
+  const result = await handleVoice(transcript);
+  return {
+    intent: result.intent,
+    replyText: result.reply,
+    actionTrigger: {
+      type: result.intent === 'emergency' ? 'TRIGGER_ALERT' : (result.intent === 'medication' ? 'CONFIRM_MEDICATION' : 'NONE'),
+      targetId: null,
+    },
+  };
+}
+
+export const SAFE_FALLBACK_RESPONSE = Object.freeze({
+  intent: 'unknown',
+  replyText: REPLIES.unknown.en,
+  actionTrigger: {
+    type: 'NONE',
+    targetId: null,
+  },
+});
+
 export default {
+  handleVoice,
   processVoiceCommand,
-  buildSystemInstruction,
-  VOICE_COMMAND_RESPONSE_SCHEMA,
+  MODEL,
+  INTENTS,
+  REPLIES,
+  EMERGENCY_WORDS,
+  SYSTEM,
   SAFE_FALLBACK_RESPONSE,
 };
-

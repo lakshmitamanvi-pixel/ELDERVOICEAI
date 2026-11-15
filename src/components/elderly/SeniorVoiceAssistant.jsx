@@ -11,7 +11,7 @@ import {
   subscribeFallback,
   submitManualInput,
 } from '../../services/speechService.js';
-import { generateSeniorVoiceResponse } from '../../services/gemini.js';
+import { handleVoice } from '../../services/geminiService.js';
 import { SUPPORTED_LANGUAGES, getTranslation } from '../../utils/multilingual.js';
 
 export const SeniorVoiceAssistant = ({ onAssistantResponse }) => {
@@ -44,18 +44,41 @@ export const SeniorVoiceAssistant = ({ onAssistantResponse }) => {
     setIsProcessing(true);
     setTranscript(spokenText);
     try {
-      const response = await generateSeniorVoiceResponse(spokenText);
-      setAiResponse(response);
+      const { intent, reply } = await handleVoice(spokenText);
+      setAiResponse(reply);
       if (onAssistantResponse) {
-        onAssistantResponse({ prompt: spokenText, response });
+        onAssistantResponse({ prompt: spokenText, response: reply, intent });
+      }
+
+      // Contextual UI actions triggered off classified intent
+      if (intent === 'emergency') {
+        const sosButton = document.querySelector('button[aria-label*="Emergency"]');
+        const sosSection = document.getElementById('emergency-heading');
+        const target = sosButton || sosSection;
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          target.classList.add('ring-8', 'ring-crimsonAlert-400', 'animate-pulse');
+          setTimeout(() => {
+            target.classList.remove('ring-8', 'ring-crimsonAlert-400', 'animate-pulse');
+          }, 3500);
+        }
+      } else if (intent === 'medication') {
+        const medSection = document.getElementById('medications-heading');
+        if (medSection) {
+          medSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          medSection.classList.add('ring-4', 'ring-emeraldSuccess-400');
+          setTimeout(() => {
+            medSection.classList.remove('ring-4', 'ring-emeraldSuccess-400');
+          }, 3500);
+        }
       }
 
       if (speechEnabled && isSpeechSynthesisSupported()) {
-        await speak(response, selectedLanguage, { rate: 0.9, pitch: 1.0 });
+        await speak(reply, selectedLanguage, { rate: 0.9, pitch: 1.0 });
       }
     } catch (error) {
       console.error('Error generating AI voice response:', error);
-      const fallback = 'I heard you, and I am here with you.';
+      const fallback = 'I am listening. Please speak again whenever you are ready.';
       setAiResponse(fallback);
       if (speechEnabled && isSpeechSynthesisSupported()) {
         await speak(fallback, selectedLanguage, { rate: 0.9, pitch: 1.0 });
