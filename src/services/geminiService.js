@@ -395,7 +395,7 @@ export async function processVoiceCommand(
     });
 
     const generatePromise = client.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-3.5-flash',
       contents: transcript.trim(),
       config: {
         systemInstruction,
