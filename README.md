@@ -256,10 +256,6 @@ VITE_GEMINI_MODEL=gemini-3.8-flash
 
 ---
 
-## Team & License
-
-### Team
-
 - **ElderVoice AI Team**
 
 ### License
