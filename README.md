@@ -1,6 +1,7 @@
 # ELDERVOICE AI
 
-Multilingual voice healthcare companion for seniors.
+> **ElderVoice AI is an accessible, multilingual voice-first healthcare companion designed specifically for seniors and elderly individuals.**  
+> **It empowers independent living through instant voice assistance, sentence-pipelined speech synthesis, emergency SOS routing, and a dedicated caregiver dashboard.**
 
 [![React](https://img.shields.io/badge/React-18.3.1-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![Vite](https://img.shields.io/badge/Vite-5.4.11-646C99?logo=vite&logoColor=white)](https://vitejs.dev/)
@@ -9,259 +10,156 @@ Multilingual voice healthcare companion for seniors.
 
 ---
 
-## Problem
-
-- Many seniors experience significant friction with standard digital health apps due to small text, low contrast, and complex navigation menus.
-- Language barriers compound these difficulties for non-native English speakers who express health concerns more comfortably in their native language (such as Hindi or Telugu).
-- When physical discomfort, falls, or sudden confusion arise, multi-step touchscreen workflows delay access to critical assistance.
-- Missed medication schedules and uncoordinated caregiver communication can lead to preventable complications.
+> [!WARNING]
+> ### ⚠️ Safety Disclaimer: Not a Diagnostic Tool
+> **ElderVoice AI is NOT a diagnostic tool and is NOT a certified medical device.**  
+> It does not diagnose diseases, recommend drug dosages, prescribe treatments, or replace certified healthcare providers. All medical and health-related guidance provided by the assistant is strictly supportive, reminding seniors to consult their primary care physician. In any acute medical crisis, dial emergency services (e.g., 911 / 112 / 108) immediately.
 
 ---
 
-## Solution & Features
+## Features
 
-ElderVoice AI provides a high-contrast, voice-first companion interface designed for elderly users, coupled with a real-time caregiver management dashboard.
-
-- **Voice Input**: Captures user speech in real time using the browser's Web Speech API (`SpeechRecognition`), with automatic fallback to text input when speech recognition is unsupported or disabled.
-- **Multilingual Support**: Supports English (`en`), Hindi (`hi`), and Telugu (`te`) across speech recognition, prompt classification, and speech synthesis (`SpeechSynthesisUtterance`).
-- **Deterministic Intent Routing**: Routes utterances into seven explicit intent categories:
-  - `medication`: Directs the user to the medication checklist and highlights today's schedule.
-  - `emergency`: Directs the user to the SOS emergency interface.
-  - `call_family`: Displays primary contact information and suggests triggering the emergency alert.
-  - `appointment`: Directs the user to upcoming clinical visits.
-  - `symptom`: Advises contacting a physician immediately and warns against unprescribed medication changes.
-  - `greeting`: Welcomes the senior and confirms system readiness.
-  - `unknown`: Requests the senior to repeat their statement when the input is unclear.
-- **Always-Visible SOS Button**: A persistent, high-contrast emergency button positioned at the top of the senior interface. It functions completely independently of the Gemini API, providing immediate visual and audio feedback, updating status, and dispatching alerts via EmailJS or logging locally even during API outages.
-- **Accessible UI**: Minimum touch targets of `min-h-[60px]`, large typography, and a WCAG AAA compliant color scheme (`elderBlue`, `warmWhite`, `crimsonAlert`, `emeraldSuccess`).
-- **Caregiver Dashboard**: PIN-protected management portal (default demo PIN: `1984`) for tracking medication adherence, scheduling appointments, reviewing vitals, and updating the family memory vault.
-
----
-
-## How It Works
-
-ElderVoice AI uses a layered processing pipeline that couples local regex checks with an LLM-based intent classifier.
-
-1. **Voice Input**: The user speaks into the microphone (or enters text into the fallback input field).
-2. **Transcription**: The Web Speech API converts audio into a text transcript.
-3. **Emergency Regex Gate**: The transcript is checked locally against `EMERGENCY_WORDS` (covering English, Hindi, and Telugu terms such as _help_, _chest pain_, _cannot breathe_, _fell_, _बचाओ_, _मदद_, _సహాయం_). If matched, the system triggers the emergency response immediately without making any API call.
-4. **Gemini Intent Classifier**: If no emergency keywords match, the transcript is sent to Google Gemini using a strict system prompt and JSON schema (`responseSchema`). The model returns only `{ intent, language }`.
-5. **Fixed Reply Lookup**: The application retrieves the corresponding fixed response from the internal `REPLIES` map based on the detected intent and language.
-6. **Feedback & Action**: The fixed reply is read aloud using speech synthesis (at a measured 0.9x speed for senior comprehension) and triggers contextual UI actions (such as scrolling to and highlighting relevant sections).
-
-### Design Choice: Classification Only
-
-> **Design Choice**: The LLM classifies intent and language only; the application writes the replies.
->
-> The Gemini model is strictly prohibited from generating freeform medical advice, diagnoses, or conversational text. Keeping reply generation deterministic in application code eliminates hallucinations, prevents medical misinformation, and guarantees predictable, safe output for seniors.
-
-### Architecture Flowchart
-
-```mermaid
-flowchart TD
-    A["Senior Voice Input"] --> B["Web Speech API Transcription"]
-    B --> C{"Emergency Regex Check (EMERGENCY_WORDS)"}
-    C -- "Keyword Matched" --> D["Immediate Local Emergency Flow (0ms Latency)"]
-    C -- "No Keyword Match" --> E["Gemini API Classification (Structured JSON)"]
-    E --> F{"API Response Status"}
-    F -- "Success" --> G["Classified Intent & Language"]
-    F -- "Rate Limit (429) / Error (503)" --> H["Model Fallback or Safe Default Intent"]
-    G --> I["Deterministic Reply Lookup (REPLIES Map)"]
-    H --> I
-    I --> J["Web Speech TTS Audio (0.9x Rate)"]
-    I --> K["Contextual UI Action (Highlight / Scroll)"]
-    D --> J
-    D --> K
-```
+- **Voice-First Accessibility**: Hands-free voice recognition with browser-native Web Speech API (`SpeechRecognition`) and accessible manual fallback input.
+- **Multilingual Support**: Real-time speech interaction and localized prompts in English (`en-US`), Hindi (`hi-IN`), and Telugu (`te-IN`).
+- **Low-Latency Sentence-Pipelined TTS**: Pipelined Text-to-Speech synthesis immediately streams and vocalizes the first sentence while subsequent tokens generate in the background.
+- **Instant Fast-Path Routing (0ms)**: Zero-latency local dispatch for urgent queries (SOS emergency phrases, medication status check, date/time, and family memory lookups) without round-trip network delays.
+- **Hedged Fallback & Circuit Breaker**: Hedged parallel requests (primary model: `gemini-2.5-flash`, fallback model: `gemini-2.5-flash-lite`) and automated circuit breakers guarantee high availability even during rate limits or upstream latency spikes.
+- **Always-Visible Emergency SOS**: Persistent, high-contrast emergency trigger that dispatches immediate caregiver alerts via EmailJS / Firestore independent of LLM connectivity.
+- **Caregiver Dashboard**: PIN-authenticated management portal (`1984` default demo PIN) for tracking medication schedules, adherence logs, vitals, and family memory vault entries.
+- **WCAG AAA Compliant Interface**: Ultra-accessible interface designed for low-vision and fine-motor difficulties, featuring `min-h-[60px]` touch targets, high contrast tokens (`elderBlue`, `warmWhite`, `crimsonAlert`, `emeraldSuccess`), and gentle 0.9x TTS pacing.
 
 ---
 
 ## Tech Stack
 
-| Category                | Technology                           | Version | Purpose                                                  |
-| :---------------------- | :----------------------------------- | :------ | :------------------------------------------------------- |
-| **UI Framework**        | React                                | 18.3.1  | Core component architecture and interface state          |
-| **Build Tool**          | Vite                                 | 5.4.11  | Development server and production bundling               |
-| **Styling**             | Tailwind CSS                         | 3.4.16  | High-contrast WCAG AAA accessible styles                 |
-| **AI SDK**              | `@google/genai`                      | 3.3.0   | Intent and language classification with Gemini models    |
-| **Speech-to-Text**      | Web Speech API (`SpeechRecognition`) | Native  | Browser-native speech recognition in en-US, hi-IN, te-IN |
-| **Text-to-Speech**      | Web Speech API (`SpeechSynthesis`)   | Native  | Slower-rate (0.9x) speech output for clarity             |
-| **Database & Sync**     | Firebase (Firestore & Auth)          | 10.14.1 | Profile, medication, and appointment persistence         |
-| **Alert Notifications** | EmailJS (`emailjs-com`)              | 3.2.0   | Caregiver email notification dispatch                    |
-| **Icons**               | Lucide React                         | 0.460.0 | Accessible iconography                                   |
+| Layer | Technology | Description |
+| :--- | :--- | :--- |
+| **Frontend Framework** | React 18 (`18.3.1`) | Functional components, hooks, and responsive state management |
+| **Build Tool & Bundler** | Vite (`5.4.11`) | Ultra-fast local development and optimized production bundling |
+| **Styling** | Tailwind CSS (`3.4.16`) | High-contrast, accessible WCAG AAA compliant styling |
+| **AI Intelligence** | Google Gemini API (`@google/genai`) | Intent classification and streamed responses via Gemini Flash models |
+| **Voice Recognition** | Web Speech API (`SpeechRecognition`) | Browser-native multilingual speech-to-text |
+| **Speech Synthesis** | Web Speech API (`SpeechSynthesis`) | Pipelined sentence-by-sentence text-to-speech at 0.9x speed |
+| **Backend & Persistence** | Firebase Firestore & Auth (`10.14.1`) | Real-time profile, medication adherence, and alerts sync |
+| **Alert Dispatch** | EmailJS (`emailjs-com` `3.2.0`) | Automated caregiver emergency notifications |
+| **Icons** | Lucide React (`0.460.0`) | Crisp, accessible iconography |
 
 ---
 
-## Project Structure
+## Demo & Screenshots
 
-```
-ELDERVOICEAI/
-├── .env.example                       # Environment variable template
-├── .gitignore                         # Git exclusion rules
-├── index.html                         # Application entry HTML
-├── package.json                       # Dependencies and scripts
-├── package-lock.json                  # Dependency version lockfile
-├── postcss.config.js                  # PostCSS configuration for Tailwind
-├── tailwind.config.js                 # Tailwind configuration with accessible color tokens
-├── vite.config.js                     # Vite build and manual chunking configuration
-├── README.md                          # Project documentation
-└── src/
-    ├── App.jsx                        # Root application component with Senior/Caretaker tabs
-    ├── index.css                      # Global stylesheet and Tailwind directives
-    ├── main.jsx                       # Application mount entry point
-    ├── components/
-    │   ├── caretaker/                 # Caregiver dashboard components
-    │   │   ├── AdherenceTracker.jsx          # Medication adherence statistics
-    │   │   ├── AlertNotificationFeed.jsx     # Emergency and warning alert feed
-    │   │   ├── AppointmentManager.jsx        # Doctor visit scheduling and status
-    │   │   ├── CaretakerDashboard.jsx        # Caregiver dashboard wrapper
-    │   │   ├── ElderlyStatusCard.jsx         # Senior profile and vitals overview
-    │   │   ├── MedicationScheduleManager.jsx # Medication schedule CRUD interface
-    │   │   ├── MemoryVaultManager.jsx        # Family memories and care routines
-    │   │   ├── PinAuthWrapper.jsx            # 4-digit PIN authentication lock
-    │   │   └── index.js                      # Caretaker component export index
-    │   └── elderly/                   # Senior-facing accessible components
-    │       ├── EmergencyAlertButton.jsx      # Standalone, always-visible SOS button
-    │       ├── MedicationReminderCard.jsx    # Accessible medication checklist card
-    │       ├── SeniorVoiceAssistant.jsx      # Voice recording and assistant interface
-    │       └── index.js                      # Elderly component export index
-    ├── services/
-    │   ├── caretakerService.js        # Firestore sync with localStorage fallback
-    │   ├── email.js                   # EmailJS alert dispatch and simulation
-    │   ├── firebase.js                # Firebase initialization (Auth & Firestore)
-    │   ├── gemini.js                  # Response generator wrapper
-    │   ├── geminiService.js           # Regex gate, model fallback, & Gemini classifier
-    │   ├── speech.js                  # Unified speech service export wrapper
-    │   ├── speechService.js           # STT/TTS engine with browser fallback handling
-    │   └── index.js                   # Services export index
-    └── utils/
-        ├── formatters.js              # Date and time formatting helpers
-        ├── multilingual.js            # Translation strings for en, hi, and te
-        └── index.js                   # Utilities export index
+<!-- Demo & Screenshots Placeholder -->
+| Senior Voice Interface | Caregiver Management Dashboard |
+| :---: | :---: |
+| ![Senior Voice Assistant Interface](docs/screenshots/senior-assistant.png) | ![Caregiver Portal & Adherence](docs/screenshots/caregiver-dashboard.png) |
+| *High-contrast voice assistant with SOS button and instant audio feedback* | *PIN-protected medication scheduler, vitals log, and memory vault* |
+
+---
+
+## Setup Steps
+
+### 1. Prerequisites
+- **Node.js**: `v18.0.0` or later
+- **npm**: `v9.0.0` or later
+- **Google Gemini API Key**: Obtainable from [Google AI Studio](https://aistudio.google.com/)
+
+### 2. Clone the Repository
+```bash
+git clone https://github.com/lakshmitamanvi-pixel/ELDERVOICEAI.git
+cd ELDERVOICEAI
 ```
 
----
-
-## Setup
-
-### Prerequisites
-
-- **Node.js**: version 18.0.0 or higher
-- **npm**: version 9.0.0 or higher
-- **Google Gemini API Key**: from [Google AI Studio](https://aistudio.google.com/)
-
-### Installation & Execution
-
-1. **Clone the repository**:
-
-   ```bash
-   git clone https://github.com/lakshmitamanvi-pixel/ELDERVOICEAI.git
-   cd ELDERVOICEAI
-   ```
-
-2. **Install dependencies**:
-
-   ```bash
-   npm install
-   ```
-
-3. **Configure environment variables**:
-   Create a `.env` file from `.env.example`:
-
-   ```bash
-   cp .env.example .env
-   ```
-
-   Set your Gemini credentials in `.env`:
-
-   ```env
-   VITE_GEMINI_API_KEY=your_gemini_api_key_here
-   VITE_GEMINI_MODEL=gemini-3.5-flash
-   ```
-
-   _(Firebase and EmailJS variables are optional; if omitted, the app runs in demo mode using `localStorage` caching and simulated alert logging)._
-
-4. **Start development server**:
-
-   ```bash
-   npm run dev
-   ```
-
-   Open `http://localhost:3000` in your browser.
-
-5. **Build for production**:
-
-   ```bash
-   npm run build
-   ```
-
-6. **Preview production build**:
-   ```bash
-   npm run preview
-   ```
-
----
-
-## Environment Variables
-
-A template file `.env.example` is included in the root directory:
-
-```env
-VITE_FIREBASE_API_KEY=your_api_key_here
-VITE_FIREBASE_AUTH_DOMAIN=your_project_id.firebaseapp.com
-VITE_FIREBASE_PROJECT_ID=your_project_id
-VITE_FIREBASE_STORAGE_BUCKET=your_project_id.appspot.com
-VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
-VITE_FIREBASE_APP_ID=your_app_id
-VITE_FIREBASE_MEASUREMENT_ID=your_measurement_id
-VITE_GEMINI_API_KEY=your_gemini_api_key_here
-VITE_GEMINI_MODEL=gemini-3.8-flash
+### 3. Install Dependencies
+```bash
+npm install
 ```
 
-| Variable              | Required                         | Description                                                           |
-| :-------------------- | :------------------------------- | :-------------------------------------------------------------------- |
-| `VITE_GEMINI_API_KEY` | Yes (for AI voice)               | API key for Gemini model classification                               |
-| `VITE_GEMINI_MODEL`   | No (default: `gemini-3.5-flash`) | Primary model name (e.g. `gemini-3.5-flash`, `gemini-3.8-flash`)      |
-| `VITE_FIREBASE_*`     | No                               | Firebase project credentials (falls back to local storage if omitted) |
+### 4. Configure Environment Variables
+Copy the `.env.example` file to create your local `.env`:
+```bash
+cp .env.example .env
+```
+
+Add your Gemini API credentials to `.env`.
+
+### 5. Run Command
+Start the local development server:
+```bash
+npm run dev
+```
+Navigate to `http://localhost:3000` in your browser.
+
+To run verification benchmarks and unit tests:
+```bash
+node tests/latency_verification.mjs
+node tests/simulate_latency.mjs
+```
+
+To build for production:
+```bash
+npm run build
+npm run preview
+```
 
 ---
 
-## Reliability & Fault Tolerance
+## Environment Variables Needed
 
-- **Pre-API Emergency Regex**: Critical safety phrases (`help`, `emergency`, `urgent`, `chest pain`, `cannot breathe`, `fell`, `ambulance`, `बचाओ`, `मदद`, `సహాయం`, `అత్యవసరం`) are intercepted locally before making network requests. This ensures immediate emergency routing with 0ms network latency.
-- **Offline & Standalone SOS**: The `EmergencyAlertButton` component functions independently of the Gemini API. Even during network disconnects or API downtime, pressing the button triggers visual alerts and local dispatch logging.
-- **Model Fallback Chain**: The `callWithFallback` routine attempts classification using the configured primary model (`VITE_GEMINI_MODEL`) and automatically rolls over to secondary candidates (such as `gemini-3.5-flash`) if the primary model fails.
-- **Error & Rate-Limit Handling (429/503)**: Rate limit errors (`429`), server errors (`500`, `503`), and unavailable models (`404`) are caught without unhandled rejections. The system falls back to `SAFE_FALLBACK_RESPONSE` (`unknown` intent), keeping the UI responsive and encouraging the senior to repeat their request.
-- **Speech Engine Resilience**: When browser speech recognition is unavailable or permission is denied, the application surfaces a diagnostic status message and provides an accessible text input field as a fallback.
+The application relies on the following environment variable names (values must be placed in `.env` and kept private):
+
+### AI Engine (Google Gemini)
+- `VITE_GEMINI_API_KEY`
+- `VITE_GEMINI_MODEL`
+- `VITE_GEMINI_PRIMARY_MODEL`
+- `VITE_GEMINI_FALLBACK_MODEL`
+- `VITE_PRIMARY_TIMEOUT_MS`
+- `VITE_HEDGE_DELAY_MS`
+- `VITE_FALLBACK_TIMEOUT_MS`
+- `VITE_FILLER_TIMEOUT_MS`
+- `VITE_MAX_OUTPUT_TOKENS`
+
+### Firebase (Optional - falls back to local storage if omitted)
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_STORAGE_BUCKET`
+- `VITE_FIREBASE_MESSAGING_SENDER_ID`
+- `VITE_FIREBASE_APP_ID`
+- `VITE_FIREBASE_MEASUREMENT_ID`
+
+### Caregiver Alert Notifications (Optional - simulated in console if omitted)
+- `VITE_EMAILJS_SERVICE_ID`
+- `VITE_EMAILJS_TEMPLATE_ID`
+- `VITE_EMAILJS_PUBLIC_KEY`
 
 ---
 
-## Limitations & Safety
+## Architecture & Processing Pipeline
 
-- **Not a Medical Device**: ElderVoice AI is an assistive prototype for communication and medication reminders. It is not a certified medical device and is not intended for clinical diagnosis or treatment.
-- **No Diagnosis or Medication Advice**: The system never prescribes medication, calculates dosages, or diagnoses medical conditions. All medical and symptom queries return fixed guidance directing the senior to consult their doctor.
-- **Client-Side Key Exposure**: In this Vite client-side build, `VITE_GEMINI_API_KEY` is bundled into browser assets. This setup is intended strictly for hackathon prototyping and local development. Production deployments require a backend proxy to protect API credentials and enforce access controls.
-- **Multilingual Validation**: While Hindi (`hi`) and Telugu (`te`) deterministic replies and UI labels are functional, they require formal clinical and linguistic review by native speakers prior to production use.
-- **Speech Recognition Variability**: Accuracy of the browser Web Speech API depends heavily on microphone quality, background noise, and regional dialects or accents.
+```mermaid
+flowchart TD
+    A["Elderly Voice Input / Text Fallback"] --> B["Web Speech STT Transcription"]
+    B --> C{"Fast-Path Evaluation"}
+    
+    C -- "SOS / Emergency" --> D["Instant Emergency Action + Alert Dispatch (0ms)"]
+    C -- "Medication / Time / Family" --> E["Instant In-Memory DB Lookup (0ms)"]
+    C -- "Complex Health / Conversational Query" --> F["Hedged Gemini Streaming Pipeline"]
+    
+    F --> G["Primary Request: gemini-2.5-flash (3s Timeout)"]
+    F --> H["Hedged Request: gemini-2.5-flash-lite (after 2s)"]
+    
+    G --> I["Sentence Boundary Splitter"]
+    H --> I
+    
+    I --> J["Pipelined TTS Audio (Sentence 1 at 0.9x speed)"]
+    I --> K["Live Transcript Streaming & Context Actions"]
+    
+    D --> J
+    E --> J
+```
 
 ---
 
-## Future Work
-
-1. **Backend Proxy & Key Security**: Implement a serverless backend proxy to manage Gemini API requests and protect API credentials.
-2. **Gemini Multimodal Live API**: Transition to direct bidirectional audio streaming over WebSockets for lower latency and natural voice interaction.
-3. **Hardware SOS Integration**: Add support for physical Bluetooth (BLE) panic buttons and wearable fall sensors.
-4. **Expanded Regional Dialect Testing**: Conduct acoustic validation with native elderly speakers across regional variations of Hindi and Telugu.
-5. **Caregiver Telephony Alerts**: Integrate SMS and automated phone calling (e.g., via Twilio) for critical emergency dispatches.
-
----
-
-## Team & License
-
-### Team
-
-- **ElderVoice AI Team**
-
-### License
+## License
 
 This project is licensed under the [MIT License](LICENSE).
