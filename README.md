@@ -48,7 +48,6 @@
 
 ## Demo & Screenshots
 
-<!-- Demo & Screenshots Placeholder -->
 | Senior Voice Interface | Caregiver Management Dashboard |
 | :---: | :---: |
 | ![Senior Voice Assistant Interface](docs/screenshots/senior-assistant.png) | ![Caregiver Portal & Adherence](docs/screenshots/caregiver-dashboard.png) |
@@ -160,6 +159,28 @@ flowchart TD
 
 ---
 
-## License
+## Reliability & Fault Tolerance
+
+- **Pre-API Emergency Regex**: Critical safety phrases (`help`, `emergency`, `urgent`, `chest pain`, `cannot breathe`, `fell`, `ambulance`, `बचाओ`, `मदद`, `సహాయం`, `అత్యవసరం`) are intercepted locally before making network requests. This ensures immediate emergency routing with 0ms network latency.
+- **Offline & Standalone SOS**: The `EmergencyAlertButton` component functions independently of the Gemini API. Even during network disconnects or API downtime, pressing the button triggers visual alerts and local dispatch logging.
+- **Model Fallback Chain & Circuit Breakers**: The system attempts generation using the configured primary model (`gemini-2.5-flash`) and automatically fires a hedged fallback to `gemini-2.5-flash-lite` if the primary is delayed or rate-limited. If consecutive failures occur, an automated circuit breaker prevents repeated timeouts.
+- **Speech Engine Resilience**: When browser speech recognition is unavailable or permission is denied, the application surfaces a diagnostic status message and provides an accessible text input field as a fallback.
+
+---
+
+## Limitations & Safety
+
+- **Not a Medical Device**: ElderVoice AI is an assistive prototype for communication, routine reminders, and caregiver awareness. It is not a certified medical device and is not intended for clinical diagnosis or treatment.
+- **No Diagnostic Advice**: The system never prescribes medication, calculates dosages, or diagnoses medical conditions. All medical and symptom queries return fixed guidance directing the senior to consult their doctor.
+- **Client-Side Key Exposure**: In this Vite client-side build, `VITE_GEMINI_API_KEY` is bundled into browser assets. This setup is intended strictly for hackathon prototyping and local development. Production deployments require a backend proxy to protect API credentials and enforce access controls.
+- **Multilingual Validation**: While Hindi (`hi`) and Telugu (`te`) deterministic replies and UI labels are functional, they require formal clinical and linguistic review by native speakers prior to production use.
+
+---
+
+## Team & License
+
+- **ElderVoice AI Team**
+
+### License
 
 This project is licensed under the [MIT License](LICENSE).
