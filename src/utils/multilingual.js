@@ -21,6 +21,7 @@ export const MULTILINGUAL_STRINGS = {
     caretakerTitle: 'Caretaker Dashboard',
     statusNormal: 'All Vitals Normal',
     statusAlert: 'Needs Attention',
+    thinkingFiller: 'One moment, please...',
   },
   'es-ES': {
     greeting: '¡Buenos días! ¿Cómo se siente hoy?',
@@ -34,6 +35,7 @@ export const MULTILINGUAL_STRINGS = {
     caretakerTitle: 'Panel del Cuidador',
     statusNormal: 'Todo Normal',
     statusAlert: 'Requiere Atención',
+    thinkingFiller: 'Un momento, por favor...',
   },
   'hi-IN': {
     greeting: 'नमस्ते! आज आप कैसा महसूस कर रहे हैं?',
@@ -47,6 +49,7 @@ export const MULTILINGUAL_STRINGS = {
     caretakerTitle: 'देखभालकर्ता डैशबोर्ड',
     statusNormal: 'सब सामान्य है',
     statusAlert: 'ध्यान देने की आवश्यकता है',
+    thinkingFiller: 'कृपया एक पल रुकें...',
   },
   'te-IN': {
     greeting: 'నమస్కారం! ఈరోజు మీకు ఎలా ఉంది?',
@@ -60,6 +63,7 @@ export const MULTILINGUAL_STRINGS = {
     caretakerTitle: 'సంరక్షకుని డాష్‌బోర్డ్',
     statusNormal: 'అన్నీ సాధారణ స్థితిలో ఉన్నాయి',
     statusAlert: 'శ్రద్ధ అవసరం',
+    thinkingFiller: 'దయచేసి ఒక నిమిషం ఆగండి...',
   },
 };
 

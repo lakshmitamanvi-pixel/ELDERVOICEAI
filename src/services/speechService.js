@@ -555,6 +555,115 @@ export const speak = async (text, lang = SPEECH_CONFIG.DEFAULT_LOCALE, options =
   });
 };
 
+/**
+ * SentenceBoundarySplitter splits streaming text tokens at sentence terminators (. ! ? \n)
+ * to immediately hand off complete sentences to the TTS pipeline.
+ */
+export class SentenceBoundarySplitter {
+  constructor(onSentence) {
+    this.onSentence = onSentence;
+    this.buffer = '';
+  }
+
+  push(textChunk) {
+    if (!textChunk) return;
+    this.buffer += textChunk;
+
+    const sentenceEndRegex = /([.!?]+(\s+|$|\n)|\n+)/;
+    let match;
+    while ((match = this.buffer.match(sentenceEndRegex)) !== null) {
+      const boundaryIndex = match.index + match[0].length;
+      const sentence = this.buffer.slice(0, boundaryIndex).trim();
+      this.buffer = this.buffer.slice(boundaryIndex);
+      if (sentence && typeof this.onSentence === 'function') {
+        this.onSentence(sentence);
+      }
+    }
+  }
+
+  flush() {
+    const remaining = this.buffer.trim();
+    this.buffer = '';
+    if (remaining && typeof this.onSentence === 'function') {
+      this.onSentence(remaining);
+    }
+    return remaining;
+  }
+}
+
+/**
+ * Pipelined Sentence-by-Sentence TTS Engine.
+ * Plays the first completed sentence immediately while later tokens are still being streamed.
+ */
+export class TTSPipeline {
+  constructor(lang = SPEECH_CONFIG.DEFAULT_LOCALE, options = {}) {
+    this.lang = lang;
+    this.options = options;
+    this.queue = [];
+    this.isSpeaking = false;
+    this.isCancelled = false;
+    this.firstAudioTriggered = false;
+    this.onFirstAudio = options.onFirstAudio || null;
+    this.onEnd = options.onEnd || null;
+  }
+
+  enqueue(sentence) {
+    if (this.isCancelled || !sentence || !sentence.trim()) return;
+    this.queue.push(sentence.trim());
+    if (!this.isSpeaking) {
+      this.playNext();
+    }
+  }
+
+  async playNext() {
+    if (this.isCancelled) return;
+    if (this.queue.length === 0) {
+      this.isSpeaking = false;
+      if (typeof this.onEnd === 'function') {
+        this.onEnd();
+      }
+      return;
+    }
+
+    this.isSpeaking = true;
+    const textToSpeak = this.queue.shift();
+
+    const startCb = () => {
+      if (!this.firstAudioTriggered) {
+        this.firstAudioTriggered = true;
+        if (typeof this.onFirstAudio === 'function') {
+          this.onFirstAudio();
+        }
+      }
+      if (typeof this.options.onStart === 'function') {
+        this.options.onStart();
+      }
+    };
+
+    try {
+      await speak(textToSpeak, this.lang, {
+        ...this.options,
+        onStart: startCb,
+      });
+    } catch (err) {
+      console.warn('[TTSPipeline] Sentence playback error:', err);
+    } finally {
+      if (!this.isCancelled) {
+        this.playNext();
+      }
+    }
+  }
+
+  cancel() {
+    this.isCancelled = true;
+    this.queue = [];
+    this.isSpeaking = false;
+    stopSpeech();
+  }
+}
+
+export const createTTSPipeline = (lang, options) => new TTSPipeline(lang, options);
+
 // ============================================================================
 // SPEECH-TO-TEXT (STT) ENGINE
 // ============================================================================
@@ -1051,6 +1160,9 @@ const speechService = {
   submitManualInput,
   createSpeechRecognizer,
   getSpeechServiceStatus,
+  TTSPipeline,
+  createTTSPipeline,
+  SentenceBoundarySplitter,
 };
 
 export default speechService;
