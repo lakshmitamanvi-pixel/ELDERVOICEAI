@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { SentenceBoundarySplitter } from './speechService.js';
+import { retrieve } from './memory_retriever.js';
 
 /**
  * ----------------------------------------------------------------------------
@@ -166,6 +167,8 @@ export async function checkStartupHealth() {
       const { status, message, errorBody } = extractErrorDetails(err);
 
       console.error(
+
+        ``
         `%c[Gemini HealthCheck] [${role.toUpperCase()}] Model '${name}': FAILED (Status: ${status}, ${durationMs}ms)`,
         'color: #dc2626; font-weight: bold;',
         '\nStatus:', status,
@@ -232,7 +235,9 @@ export class CircuitBreaker {
       `[CircuitBreaker] Failure on ${modelName} - Status: ${status}, Message: ${message} (${this.failures.length}/${this.threshold} in last ${this.windowMs / 1000}s)`
     );
 
-    if (this.failures.length >= this.threshold || this.state === 'HALF_OPEN') {
+    const isQuotaExhausted = status === 429 || String(message).includes('RESOURCE_EXHAUSTED');
+
+    if (isQuotaExhausted || this.failures.length >= this.threshold || this.state === 'HALF_OPEN') {
       this.state = 'OPEN';
       this.openUntil = now + this.cooldownMs;
       console.warn(
@@ -346,9 +351,10 @@ export const getRelevantContextSubset = (query = '') => {
 
 /**
  * Shortened strict system prompt (capping reply to 1-2 spoken sentences)
+ * Answer about people/medicines/schedule ONLY from FACTS.
  */
 export const SYSTEM_PROMPT =
-  'You are ElderVoice AI, a caring voice assistant for senior Eleanor. Reply in 1-2 short, spoken sentences. Be warm, comforting, and direct. Never use markdown, bullet points, or jargon.';
+  'You are ElderVoice AI. Reply in 1-2 short, warm sentences. Answer people, medicines, or schedule ONLY from FACTS. If not in FACTS, say: "I\'m not sure, shall I ask Sarah?" Never invent facts.';
 
 export const SYSTEM = SYSTEM_PROMPT; // Backward compatibility alias
 
@@ -411,7 +417,47 @@ export const checkFastPath = (transcript = '', lang = 'en-US') => {
 
   const ctx = loadSessionContext();
 
-  // 2. "did I take my medicine" rule
+  // 3. Medicine / Dose / Time questions: answer directly from DB, skip LLM for factual part
+  const isMedGeneralQuery =
+    /\b(what|which|list|tell me about)\s+(are\s+)?(my\s+)?(all\s+)?(med|meds|medicine|medicines|pill|pills|medication|medications|prescription|prescriptions)\b/i.test(
+      lower
+    );
+  const isDoseQuery = /\b(dose|dosage|how much|how many)\b/i.test(lower);
+  const isTimeOrScheduleQuery = /\b(when|what time|schedule|scheduled|how often)\b/i.test(lower);
+  const matchedMed = (ctx.medications || []).find((m) =>
+    new RegExp(`\\b${m.name.toLowerCase()}\\b`, 'i').test(lower)
+  );
+
+  if (matchedMed && (isDoseQuery || isTimeOrScheduleQuery || isMedGeneralQuery || lower.includes(matchedMed.name.toLowerCase()))) {
+    const isDoseOnly = isDoseQuery && !isTimeOrScheduleQuery;
+    const isTimeOnly = isTimeOrScheduleQuery && !isDoseQuery;
+    let reply = '';
+    if (isDoseOnly) {
+      reply = `Your dose of ${matchedMed.name} is ${matchedMed.dosage}. ${matchedMed.instructions || ''}`.trim();
+    } else if (isTimeOnly) {
+      reply = `You take ${matchedMed.name} at ${matchedMed.scheduleTime}. ${matchedMed.instructions || ''}`.trim();
+    } else {
+      reply = `Your ${matchedMed.name} is ${matchedMed.dosage}, scheduled for ${matchedMed.scheduleTime}. ${matchedMed.instructions || ''}`.trim();
+    }
+    return {
+      handled: true,
+      intent: 'medication_factual',
+      reply,
+      actionTrigger: { type: 'NONE', targetId: matchedMed.id },
+    };
+  }
+
+  if (isMedGeneralQuery && !lower.includes('take') && !lower.includes('taken')) {
+    const summary = (ctx.medications || []).map((m) => `${m.name} ${m.dosage} at ${m.scheduleTime}`).join(', ');
+    return {
+      handled: true,
+      intent: 'medication_factual',
+      reply: `Your scheduled medications are: ${summary}.`,
+      actionTrigger: { type: 'NONE', targetId: null },
+    };
+  }
+
+  // 4. "did I take my medicine" rule
   if (
     /\b(did i take|have i taken|did i have|did i miss|have i had)\s+(my\s+)?(med|meds|medicine|medicines|pill|pills|medication|medications)\b/i.test(
       lower
@@ -475,6 +521,25 @@ export const checkFastPath = (transcript = '', lang = 'en-US') => {
 };
 
 /**
+ * Identify conversational small talk / greetings to skip memory retrieval
+ * and avoid adding any latency.
+ */
+export const isSmallTalk = (transcript = '') => {
+  if (!transcript || typeof transcript !== 'string') return false;
+  const clean = transcript.trim().toLowerCase().replace(/[!?.,]/g, '');
+  const smallTalkPatterns = [
+    /^(hi|hello|hey|good morning|good afternoon|good evening|good night)$/,
+    /^(how are you|how are you doing|how is it going|how are things)$/,
+    /^(thank you|thanks|thanks a lot|thank you very much)$/,
+    /^(bye|goodbye|see you|talk to you later)$/,
+    /^(yes|no|okay|ok|sure|alright)$/,
+    /^(who are you|what is your name)$/,
+    /^(nice to meet you|pleased to meet you)$/,
+  ];
+  return smallTalkPatterns.some((pattern) => pattern.test(clean));
+};
+
+/**
  * ----------------------------------------------------------------------------
  * 9. LATENCY LOGGER
  * Timestamp each stage (STT done, LLM first token, LLM done, TTS first audio)
@@ -486,6 +551,8 @@ export class LatencyLogger {
     this.requestId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     this.input = input;
     this.t_stt_done = Date.now();
+    this.t_retrieval_ms = 0;
+    this.factIdsUsed = [];
     this.t_fastpath = null;
     this.t_llm_start = null;
     this.t_llm_first_token = null;
@@ -502,6 +569,11 @@ export class LatencyLogger {
     this.t_fastpath = Date.now();
     this.isFastPath = true;
     this.modelAnswered = `Fast-Path (${intent})`;
+  }
+
+  markRetrieval(durationMs, factIds = []) {
+    this.t_retrieval_ms = durationMs;
+    this.factIdsUsed = factIds;
   }
 
   markLLMStart() {
@@ -554,6 +626,11 @@ export class LatencyLogger {
     if (this.isFastPath) {
       console.log(`Fast-Path Instant Lookup: ${(this.t_fastpath - stt).toFixed(2)} ms`);
     } else {
+      if (this.factIdsUsed && this.factIdsUsed.length > 0) {
+        console.log(`Memory Retrieval (${this.t_retrieval_ms || 0} ms): Fact IDs: [${this.factIdsUsed.join(', ')}]`);
+      } else {
+        console.log(`Memory Retrieval:          Skipped (0 ms added latency)`);
+      }
       console.log(`STT Done -> First Token (TTFT): ${ttft}`);
       console.log(`LLM Stream Generation:          ${llmGen}`);
     }
@@ -567,6 +644,8 @@ export class LatencyLogger {
       model: this.modelAnswered,
       isFastPath: this.isFastPath,
       hedgedFired: this.hedgedFired,
+      retrievalMs: this.t_retrieval_ms || 0,
+      factIdsUsed: this.factIdsUsed || [],
       ttft: this.t_llm_first_token ? this.t_llm_first_token - stt : 0,
       ttfa: this.t_tts_first_audio ? this.t_tts_first_audio - stt : 0,
       total: Number(total),
@@ -836,15 +915,52 @@ export async function handleVoice(transcript, options = {}) {
       reply: fastPathResult.reply,
       actionTrigger: fastPathResult.actionTrigger || { type: 'NONE', targetId: null },
       fastPath: true,
+      retrievedFactIds: [],
+      retrievalMs: 0,
       logger,
     };
   }
 
-  // 2. LLM Path: Inject minimal relevant context subset
-  const relevantContext = getRelevantContextSubset(cleanText);
-  const promptWithContext = relevantContext
-    ? `${relevantContext}\nUser prompt: "${cleanText}"`
-    : cleanText;
+  // 2. LLM Path: Top 4 Facts Retrieval (Skip for SOS and small talk)
+  const shouldSkipRetrieval = EMERGENCY_WORDS.test(cleanText) || isSmallTalk(cleanText);
+  let retrievedChunks = [];
+  let retrievalDurationMs = 0;
+  let factIds = [];
+
+  if (!shouldSkipRetrieval) {
+    const tRetStart = Date.now();
+    try {
+      // Retrieval budget: must add < 300ms
+      const retPromise = retrieve(cleanText, 4);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Retrieval timeout (>280ms)')), 280)
+      );
+      retrievedChunks = await Promise.race([retPromise, timeoutPromise]);
+    } catch (retErr) {
+      console.warn(`[geminiService] Fast retrieval fallback triggered: ${retErr.message}`);
+      try {
+        retrievedChunks = await retrieve(cleanText, 4, { forceFallback: true });
+      } catch (_) {
+        retrievedChunks = [];
+      }
+    }
+    retrievalDurationMs = Date.now() - tRetStart;
+    factIds = retrievedChunks.map((c) => c.id);
+    logger.markRetrieval(retrievalDurationMs, factIds);
+    console.log(`[geminiService] Retrieval took ${retrievalDurationMs}ms (Used fact IDs: ${factIds.join(', ') || 'None'})`);
+  } else {
+    logger.markRetrieval(0, []);
+    console.log('[geminiService] Retrieval skipped for SOS / small talk (0ms added latency)');
+  }
+
+  // Inject ONLY top 4 facts into prompt in a "FACTS" block, each with its id
+  const factsBlock = retrievedChunks.length > 0
+    ? `FACTS:\n${retrievedChunks.map((c) => `- [${c.id}]: ${c.text}`).join('\n')}`
+    : 'FACTS:\n(None available)';
+
+  const promptWithContext = shouldSkipRetrieval
+    ? cleanText
+    : `${factsBlock}\n\nUser prompt: "${cleanText}"`;
 
   try {
     const result = await streamWithHedgeAndTimeout({
@@ -865,6 +981,8 @@ export async function handleVoice(transcript, options = {}) {
       model: result.model,
       actionTrigger: { type: 'NONE', targetId: null },
       fastPath: false,
+      retrievedFactIds: factIds,
+      retrievalMs: retrievalDurationMs,
       logger,
     };
   } catch (err) {
@@ -896,6 +1014,9 @@ export async function handleVoice(transcript, options = {}) {
       intent: 'unknown',
       reply: fallbackReply,
       actionTrigger: { type: 'NONE', targetId: null },
+      fastPath: false,
+      retrievedFactIds: factIds,
+      retrievalMs: retrievalDurationMs,
       error: err,
       logger,
     };
