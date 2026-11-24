@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, Volume2, VolumeX, Sparkles, Globe, Send, AlertCircle, MessageSquare } from 'lucide-react';
 import {
   startListening,
@@ -10,8 +10,10 @@ import {
   getFallbackDetails,
   subscribeFallback,
   submitManualInput,
+  TTSPipeline,
 } from '../../services/speechService.js';
-import { handleVoice } from '../../services/geminiService.js';
+import { handleVoice, LatencyLogger, FILLER_TIMEOUT_MS } from '../../services/geminiService.js';
+import { sendEmergencyEmailAlert } from '../../services/email.js';
 import { SUPPORTED_LANGUAGES, getTranslation } from '../../utils/multilingual.js';
 
 export const SeniorVoiceAssistant = ({ onAssistantResponse }) => {
@@ -24,6 +26,7 @@ export const SeniorVoiceAssistant = ({ onAssistantResponse }) => {
   const [selectedLanguage, setSelectedLanguage] = useState('en-US');
   const [fallbackInfo, setFallbackInfo] = useState(() => getFallbackDetails());
   const [manualInputText, setManualInputText] = useState('');
+  const pipelineRef = useRef(null);
 
   // Subscribe to speech service fallback notifications
   useEffect(() => {
@@ -32,6 +35,9 @@ export const SeniorVoiceAssistant = ({ onAssistantResponse }) => {
     });
 
     return () => {
+      if (pipelineRef.current) {
+        pipelineRef.current.cancel();
+      }
       stopSpeech();
       stopListening();
       unsubscribe();
@@ -41,11 +47,61 @@ export const SeniorVoiceAssistant = ({ onAssistantResponse }) => {
   const handleProcessVoiceInput = async (spokenText) => {
     if (!spokenText || spokenText.trim().length === 0) return;
 
+    // Cancel any ongoing audio output
+    if (pipelineRef.current) {
+      pipelineRef.current.cancel();
+    }
+    stopSpeech();
+
+    const logger = new LatencyLogger(spokenText);
     setIsProcessing(true);
     setTranscript(spokenText);
+    setAiResponse('');
+
+    const ttsPipeline = new TTSPipeline(selectedLanguage, {
+      rate: 0.9,
+      pitch: 1.0,
+      onFirstAudio: () => {
+        logger.markTTSFirstAudio();
+      },
+      onEnd: () => {
+        logger.markTTSDone();
+        logger.printSummary();
+      },
+    });
+    pipelineRef.current = ttsPipeline;
+
+    // Pre-cache canned filler ("One moment, please...") if no token within 1.5s
+    let firstTokenReceived = false;
+    const fillerTimer = setTimeout(() => {
+      if (!firstTokenReceived && speechEnabled && isSpeechSynthesisSupported()) {
+        const fillerText = getTranslation('thinkingFiller', selectedLanguage) || 'One moment, please...';
+        speak(fillerText, selectedLanguage, { rate: 0.9, pitch: 1.0 });
+      }
+    }, FILLER_TIMEOUT_MS);
+
     try {
-      const { intent, reply } = await handleVoice(spokenText);
+      const { intent, reply, fastPath } = await handleVoice(spokenText, {
+        lang: selectedLanguage,
+        logger,
+        onToken: (token, accumulated) => {
+          setAiResponse(accumulated);
+        },
+        onFirstToken: () => {
+          firstTokenReceived = true;
+          clearTimeout(fillerTimer);
+          setIsProcessing(false);
+        },
+        onSentence: (sentence) => {
+          if (speechEnabled && isSpeechSynthesisSupported()) {
+            ttsPipeline.enqueue(sentence);
+          }
+        },
+      });
+
+      clearTimeout(fillerTimer);
       setAiResponse(reply);
+
       if (onAssistantResponse) {
         onAssistantResponse({ prompt: spokenText, response: reply, intent });
       }
@@ -62,6 +118,16 @@ export const SeniorVoiceAssistant = ({ onAssistantResponse }) => {
             target.classList.remove('ring-8', 'ring-crimsonAlert-400', 'animate-pulse');
           }, 3500);
         }
+
+        // Keep SOS path working: dispatch email alert to caregiver
+        sendEmergencyEmailAlert({
+          seniorName: 'Eleanor Vance',
+          emergencyType: 'Voice SOS Intent: ' + spokenText,
+          location: 'Home Console - Living Room',
+          customNote: 'Senior stated: "' + spokenText + '". Assistant replied: "' + reply + '"',
+        }).catch((alertErr) => {
+          console.warn('[SeniorVoiceAssistant] Caregiver alert dispatch note:', alertErr);
+        });
       } else if (intent === 'medication') {
         const medSection = document.getElementById('medications-heading');
         if (medSection) {
@@ -73,16 +139,21 @@ export const SeniorVoiceAssistant = ({ onAssistantResponse }) => {
         }
       }
 
-      if (speechEnabled && isSpeechSynthesisSupported()) {
-        await speak(reply, selectedLanguage, { rate: 0.9, pitch: 1.0 });
+      // If speech is disabled or synthesis not supported, mark done
+      if (!speechEnabled || !isSpeechSynthesisSupported()) {
+        logger.markTTSDone();
+        logger.printSummary();
       }
     } catch (error) {
+      clearTimeout(fillerTimer);
+      if (pipelineRef.current) pipelineRef.current.cancel();
       console.error('Error generating AI voice response:', error);
       const fallback = 'I am listening. Please speak again whenever you are ready.';
       setAiResponse(fallback);
       if (speechEnabled && isSpeechSynthesisSupported()) {
         await speak(fallback, selectedLanguage, { rate: 0.9, pitch: 1.0 });
       }
+      logger.printSummary();
     } finally {
       setIsProcessing(false);
       setInterimTranscript('');
@@ -96,6 +167,9 @@ export const SeniorVoiceAssistant = ({ onAssistantResponse }) => {
       return;
     }
 
+    if (pipelineRef.current) {
+      pipelineRef.current.cancel();
+    }
     stopSpeech();
     setTranscript('');
     setInterimTranscript('');
@@ -147,6 +221,9 @@ export const SeniorVoiceAssistant = ({ onAssistantResponse }) => {
     const nextState = !speechEnabled;
     setSpeechEnabled(nextState);
     if (!nextState) {
+      if (pipelineRef.current) {
+        pipelineRef.current.cancel();
+      }
       stopSpeech();
     }
   };
