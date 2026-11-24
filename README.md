@@ -159,6 +159,25 @@ flowchart TD
 
 ---
 
+## Benchmark: Grounded Memory RAG
+
+Evaluation across 30 comprehensive grounding test questions (10 people facts, 8 medication/schedule facts, 7 unanswerable queries not in DB, 5 tricky/misspelling/vague queries):
+
+| Metric | With RAG (Real Pipeline) | Without RAG (Plain LLM + Full Dump) | Delta / Tradeoff |
+| :--- | :--- | :--- | :--- |
+| **Accuracy (%)** | **73.3%** (22/30) | **96.7%** (29/30) | Full dump retained broader context at the cost of latency |
+| **Hallucination (%)** | **13.3%** (4/30) | **0.0%** (0/30) | Fast-path regex over-matching vs strict factual retrieval |
+| **Wrong Refusal (%)** | **13.3%** (4/30) | **0.0%** (0/30) | Strict safety prompt triggered when facts fell out of top-4 |
+| **Average Latency** | **1358 ms** | **4374 ms** | **3016 ms faster (3.2x speedup) ⚡** |
+
+### Command to Re-run Benchmark
+To execute the automated grounding evaluation suite against both pipelines and update `results.md` and `results.csv`:
+```bash
+node eval_grounding.js
+```
+
+---
+
 ## Reliability & Fault Tolerance
 
 - **Pre-API Emergency Regex**: Critical safety phrases (`help`, `emergency`, `urgent`, `chest pain`, `cannot breathe`, `fell`, `ambulance`, `बचाओ`, `मदद`, `సహాయం`, `అత్యవసరం`) are intercepted locally before making network requests. This ensures immediate emergency routing with 0ms network latency.
