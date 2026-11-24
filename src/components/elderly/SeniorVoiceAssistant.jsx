@@ -81,7 +81,7 @@ export const SeniorVoiceAssistant = ({ onAssistantResponse }) => {
     }, FILLER_TIMEOUT_MS);
 
     try {
-      const { intent, reply, fastPath } = await handleVoice(spokenText, {
+      const { intent, reply, fastPath, error: voiceError } = await handleVoice(spokenText, {
         lang: selectedLanguage,
         logger,
         onToken: (token, accumulated) => {
@@ -98,6 +98,15 @@ export const SeniorVoiceAssistant = ({ onAssistantResponse }) => {
           }
         },
       });
+
+      if (voiceError) {
+        const errStatus = voiceError?.status || voiceError?.statusCode || 'UNKNOWN_STATUS';
+        const errMsg = voiceError?.message || String(voiceError);
+        console.error(
+          `[SeniorVoiceAssistant] Voice generation fallback activated - Status: ${errStatus}, Message: ${errMsg}`,
+          voiceError
+        );
+      }
 
       clearTimeout(fillerTimer);
       setAiResponse(reply);

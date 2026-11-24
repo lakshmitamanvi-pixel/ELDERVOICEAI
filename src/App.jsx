@@ -5,6 +5,7 @@ import { CaretakerDashboard } from './components/caretaker/index.js';
 import { formatSeniorDate, formatSeniorTime } from './utils/formatters.js';
 import { subscribeToMedications, updateMedication } from './services/caretakerService.js';
 import { sendEmergencyEmailAlert } from './services/email.js';
+import { checkStartupHealth } from './services/geminiService.js';
 
 export function App() {
   const [activeTab, setActiveTab] = useState('senior');
@@ -15,6 +16,12 @@ export function App() {
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    checkStartupHealth().catch((err) => {
+      console.error('[App] Startup health check failed unexpectedly:', err);
+    });
   }, []);
 
   useEffect(() => {

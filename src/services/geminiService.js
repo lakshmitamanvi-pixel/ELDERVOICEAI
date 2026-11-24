@@ -12,12 +12,12 @@ export const PRIMARY_MODEL =
   (typeof import.meta !== 'undefined' && import.meta?.env?.VITE_GEMINI_PRIMARY_MODEL) ||
   (typeof import.meta !== 'undefined' && import.meta?.env?.VITE_GEMINI_MODEL) ||
   (typeof process !== 'undefined' && (process?.env?.VITE_GEMINI_PRIMARY_MODEL || process?.env?.VITE_GEMINI_MODEL)) ||
-  'gemini-2.5-flash';
+  'gemini-3.6-flash';
 
 export const FALLBACK_MODEL =
   (typeof import.meta !== 'undefined' && import.meta?.env?.VITE_GEMINI_FALLBACK_MODEL) ||
   (typeof process !== 'undefined' && process?.env?.VITE_GEMINI_FALLBACK_MODEL) ||
-  'gemini-2.5-flash-lite';
+  'gemini-3.5-flash-lite';
 
 export const MODEL = PRIMARY_MODEL;
 export const MODELS = [PRIMARY_MODEL, FALLBACK_MODEL];
@@ -90,6 +90,108 @@ export const getPersistentClient = () => {
 
 export const getClient = getPersistentClient;
 
+export function extractErrorDetails(err) {
+  const status = err?.status || err?.statusCode || err?.response?.status || 'UNKNOWN_STATUS';
+  const message = err?.message || String(err);
+  let errorBody = err?.response || null;
+  if (!errorBody && typeof message === 'string' && message.startsWith('{')) {
+    try {
+      errorBody = JSON.parse(message);
+    } catch (_) {}
+  }
+  return { status, message, errorBody: errorBody || message };
+}
+
+/**
+ * ----------------------------------------------------------------------------
+ * STARTUP HEALTH CHECK (Tiny test prompt per configured model)
+ * Probes each configured model, logging status code and error body on failure.
+ * ----------------------------------------------------------------------------
+ */
+export async function checkStartupHealth() {
+  const client = getPersistentClient();
+  const results = {};
+  console.group('[Gemini HealthCheck] Checking configured models on startup...');
+
+  if (!client) {
+    const errorMsg = 'Client initialization failed: VITE_GEMINI_API_KEY is not defined or invalid.';
+    console.error(`[Gemini HealthCheck] FAILED - ${errorMsg}`);
+    console.groupEnd();
+    return {
+      success: false,
+      error: errorMsg,
+      models: {},
+    };
+  }
+
+  const modelsToCheck = [
+    { role: 'primary', name: PRIMARY_MODEL },
+    { role: 'fallback', name: FALLBACK_MODEL },
+  ];
+
+  let allHealthy = true;
+
+  for (const { role, name } of modelsToCheck) {
+    const startTime = Date.now();
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => abortController.abort(), 15000);
+    try {
+      const response = await client.models.generateContent({
+        model: name,
+        contents: 'ping',
+        config: {
+          maxOutputTokens: 5,
+          abortSignal: abortController.signal,
+        },
+      });
+      clearTimeout(timeoutId);
+      const durationMs = Date.now() - startTime;
+      const status = 200;
+      console.log(
+        `%c[Gemini HealthCheck] [${role.toUpperCase()}] Model '${name}': HEALTHY (Status: ${status}, ${durationMs}ms)`,
+        'color: #059669; font-weight: bold;',
+        `\nResponse: "${response.text?.trim()}"`
+      );
+      results[name] = {
+        role,
+        healthy: true,
+        status,
+        durationMs,
+        response: response.text?.trim() || '',
+      };
+    } catch (err) {
+      clearTimeout(timeoutId);
+      allHealthy = false;
+      const durationMs = Date.now() - startTime;
+      const { status, message, errorBody } = extractErrorDetails(err);
+
+      console.error(
+        `%c[Gemini HealthCheck] [${role.toUpperCase()}] Model '${name}': FAILED (Status: ${status}, ${durationMs}ms)`,
+        'color: #dc2626; font-weight: bold;',
+        '\nStatus:', status,
+        '\nMessage:', message,
+        '\nError Body:', errorBody,
+        '\nRaw Error:', err
+      );
+
+      results[name] = {
+        role,
+        healthy: false,
+        status,
+        durationMs,
+        message,
+        errorBody,
+      };
+    }
+  }
+
+  console.groupEnd();
+  return {
+    success: allHealthy,
+    models: results,
+  };
+}
+
 /**
  * ----------------------------------------------------------------------------
  * 8. CIRCUIT BREAKER
@@ -125,9 +227,9 @@ export class CircuitBreaker {
     this.failures.push(now);
     this.failures = this.failures.filter((t) => now - t <= this.windowMs);
 
-    console.warn(
-      `[CircuitBreaker] Failure on ${modelName} (${this.failures.length}/${this.threshold} in last ${this.windowMs / 1000}s):`,
-      error?.message || error
+    const { status, message } = extractErrorDetails(error);
+    console.error(
+      `[CircuitBreaker] Failure on ${modelName} - Status: ${status}, Message: ${message} (${this.failures.length}/${this.threshold} in last ${this.windowMs / 1000}s)`
     );
 
     if (this.failures.length >= this.threshold || this.state === 'HALF_OPEN') {
@@ -547,6 +649,13 @@ export async function streamWithHedgeAndTimeout({
       return res;
     } catch (fbErr) {
       clearTimeout(fallbackTimeout);
+      const { status, message, errorBody } = extractErrorDetails(fbErr);
+      console.error(
+        `[geminiService] FALLBACK MODEL FAILURE (Circuit Open Direct Route, ${FALLBACK_MODEL}) - Status: ${status}, Message: ${message}`,
+        '\nError Body:',
+        errorBody,
+        fbErr
+      );
       throw fbErr;
     }
   }
@@ -557,6 +666,10 @@ export async function streamWithHedgeAndTimeout({
   let fallbackController = null;
   let primaryFirstTokenArrived = false;
   let fallbackFirstTokenArrived = false;
+  let primaryEnded = false;
+  let fallbackEnded = false;
+  let primaryError = null;
+  let fallbackError = null;
 
   let primaryTimeoutId = null;
   let hedgeTimeoutId = null;
@@ -589,13 +702,18 @@ export async function streamWithHedgeAndTimeout({
 
     const triggerFallback = () => {
       if (fallbackController || resolved) return;
-      console.info(`[HedgedRequest] 2s elapsed with no 1st token. Firing fallback (${FALLBACK_MODEL}) in parallel.`);
+      console.info(`[HedgedRequest] 2s elapsed or primary failure. Firing fallback (${FALLBACK_MODEL}) in parallel.`);
       if (logger) logger.hedgedFired = true;
 
       fallbackController = new AbortController();
       fallbackTimeoutId = setTimeout(() => {
         if (!resolved && !fallbackFirstTokenArrived) {
           fallbackController.abort();
+          fallbackEnded = true;
+          if (primaryEnded && !resolved) {
+            cleanup();
+            reject(fallbackError || primaryError || new Error(`Fallback (${FALLBACK_MODEL}) timed out.`));
+          }
         }
       }, FALLBACK_TIMEOUT_MS);
 
@@ -606,7 +724,16 @@ export async function streamWithHedgeAndTimeout({
           }
         })
         .catch((err) => {
-          if (!resolved && !primaryFirstTokenArrived) {
+          fallbackEnded = true;
+          fallbackError = err;
+          const { status, message, errorBody } = extractErrorDetails(err);
+          console.error(
+            `[geminiService] FALLBACK MODEL FAILURE (${FALLBACK_MODEL}) - Status: ${status}, Message: ${message}`,
+            '\nError Body:',
+            errorBody,
+            err
+          );
+          if (!resolved && primaryEnded) {
             cleanup();
             reject(err);
           }
@@ -622,12 +749,17 @@ export async function streamWithHedgeAndTimeout({
 
     // 1. Timeout: Primary model call gets 3s hard timeout. On timeout -> switch to fallback immediately.
     primaryTimeoutId = setTimeout(() => {
-      if (!primaryFirstTokenArrived && !resolved) {
+      if (!primaryFirstTokenArrived && !primaryEnded && !resolved) {
         console.warn(`[Timeout] Primary model (${PRIMARY_MODEL}) hit 3s hard timeout. Aborting.`);
         primaryController.abort();
-        primaryCircuitBreaker.recordFailure(PRIMARY_MODEL, new Error('3s Primary Timeout'));
+        primaryEnded = true;
+        primaryError = new Error(`3s Primary Timeout for ${PRIMARY_MODEL}`);
+        primaryCircuitBreaker.recordFailure(PRIMARY_MODEL, primaryError);
         if (!fallbackController) {
           triggerFallback();
+        } else if (fallbackEnded) {
+          cleanup();
+          reject(fallbackError || primaryError);
         }
       }
     }, PRIMARY_TIMEOUT_MS);
@@ -636,20 +768,26 @@ export async function streamWithHedgeAndTimeout({
     runModelStream(PRIMARY_MODEL, primaryController)
       .then((result) => {
         primaryFirstTokenArrived = true;
+        primaryEnded = true;
         if (!resolved) {
           handleSuccess(result);
         }
       })
       .catch((err) => {
+        primaryEnded = true;
+        primaryError = err;
+        const { status, message, errorBody } = extractErrorDetails(err);
         primaryCircuitBreaker.recordFailure(PRIMARY_MODEL, err);
-        console.warn(
-          `[PrimaryFailure] Model '${PRIMARY_MODEL}' failed (${err?.message || err}). Switching immediately to fallback without retries.`
+        console.error(
+          `[geminiService] PRIMARY MODEL FAILURE (${PRIMARY_MODEL}) - Status: ${status}, Message: ${message}`,
+          '\nError Body:',
+          errorBody,
+          `\nAction: Routing request to fallback (${FALLBACK_MODEL}) without silent failure.`,
+          err
         );
         if (!fallbackController && !resolved) {
           triggerFallback();
-        } else if (!resolved && fallbackFirstTokenArrived) {
-          // Fallback will fulfill
-        } else if (!resolved) {
+        } else if (fallbackEnded && !resolved) {
           cleanup();
           reject(err);
         }
@@ -730,7 +868,13 @@ export async function handleVoice(transcript, options = {}) {
       logger,
     };
   } catch (err) {
-    console.error('[geminiService] LLM stream failed or timed out:', err);
+    const { status, message, errorBody } = extractErrorDetails(err);
+    console.error(
+      `[geminiService] All LLM stream models failed or timed out - Status: ${status}, Message: ${message}`,
+      '\nError Body:',
+      errorBody,
+      err
+    );
 
     // Guaranteed SOS path: even if both models fail, trigger emergency alert & safe reply
     if (EMERGENCY_WORDS.test(cleanText)) {
@@ -773,9 +917,15 @@ export async function callWithFallback(params) {
       return await client.models.generateContent({ ...params, model: m });
     } catch (err) {
       lastError = err;
-      const status = Number(err?.status ?? err?.response?.status ?? err?.statusCode);
-      if (status === 429 || status === 500 || status === 503 || status === 404) {
-        console.warn(`[geminiService] Model ${m} failed with status ${status}:`, err.message || err);
+      const { status, message, errorBody } = extractErrorDetails(err);
+      console.error(
+        `[geminiService] Model ${m} failed - Status: ${status}, Message: ${message}`,
+        '\nError Body:',
+        errorBody,
+        err
+      );
+      const numStatus = Number(status);
+      if (numStatus === 429 || numStatus === 500 || numStatus === 503 || numStatus === 404) {
         continue;
       }
       throw err;
@@ -870,6 +1020,8 @@ export default {
   processVoiceCommand,
   callWithFallback,
   streamWithHedgeAndTimeout,
+  checkStartupHealth,
+  extractErrorDetails,
   checkFastPath,
   loadSessionContext,
   getRelevantContextSubset,
