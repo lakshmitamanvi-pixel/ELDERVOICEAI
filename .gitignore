@@ -36,6 +36,11 @@ Thumbs.db
 *.crt
 *.pfx
 
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
 # User Data & Uploads
 uploads/
 user data/

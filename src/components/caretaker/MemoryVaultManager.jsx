@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Brain,
   Users,
   Bookmark,
-  FileText,
   PhoneCall,
   Save,
   Plus,
   Trash2,
+  Edit2,
+  Check,
+  X,
   CheckCircle2,
   ShieldCheck,
   AlertCircle,
@@ -40,89 +42,144 @@ export const MemoryVaultManager = ({ profile = {}, onSaveProfile }) => {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState('');
 
-  // Memory Vault sub-item adders
+  // Memory Vault sub-item adders & editors
   const [newFamily, setNewFamily] = useState({ name: '', relationship: '', note: '' });
+  const [editingFamilyId, setEditingFamilyId] = useState(null);
+  const [editFamilyData, setEditFamilyData] = useState({ name: '', relationship: '', note: '' });
+
   const [newFact, setNewFact] = useState({ category: 'Memory', text: '' });
-  const [newNote, setNewNote] = useState({ title: '', text: '' });
+  const [editingFactId, setEditingFactId] = useState(null);
+  const [editFactData, setEditFactData] = useState({ category: '', text: '' });
+
   const [newContact, setNewContact] = useState({ name: '', relationship: '', phone: '' });
+
+  useEffect(() => {
+    if (profile && Object.keys(profile).length > 0) {
+      setFormData((prev) => ({
+        ...prev,
+        ...profile,
+        medicalNotes: { ...prev.medicalNotes, ...(profile.medicalNotes || {}) },
+        emergencyContacts: profile.emergencyContacts || prev.emergencyContacts,
+        memoryVault: {
+          ...prev.memoryVault,
+          ...(profile.memoryVault || {}),
+        },
+      }));
+    }
+  }, [profile]);
+
+  const persistUpdate = async (updatedData) => {
+    setFormData(updatedData);
+    if (onSaveProfile) {
+      try {
+        await onSaveProfile(updatedData);
+      } catch (err) {
+        console.warn('Auto-save memory update failed:', err);
+      }
+    }
+  };
 
   const handleAddFamilyMember = () => {
     if (!newFamily.name.trim()) return;
     const item = {
       id: `fm-${Date.now()}`,
-      ...newFamily,
+      name: newFamily.name.trim(),
+      relationship: newFamily.relationship.trim(),
+      note: newFamily.note.trim(),
     };
-    setFormData((prev) => ({
-      ...prev,
+    const updated = {
+      ...formData,
       memoryVault: {
-        ...prev.memoryVault,
-        familyMembers: [...(prev.memoryVault.familyMembers || []), item],
+        ...formData.memoryVault,
+        familyMembers: [...(formData.memoryVault.familyMembers || []), item],
       },
-    }));
+    };
+    persistUpdate(updated);
     setNewFamily({ name: '', relationship: '', note: '' });
   };
 
-  const handleDeleteFamilyMember = (id) => {
-    setFormData((prev) => ({
-      ...prev,
+  const handleStartEditFamily = (fm) => {
+    setEditingFamilyId(fm.id);
+    setEditFamilyData({ name: fm.name || '', relationship: fm.relationship || '', note: fm.note || '' });
+  };
+
+  const handleSaveEditFamily = (id) => {
+    if (!editFamilyData.name.trim()) return;
+    const updated = {
+      ...formData,
       memoryVault: {
-        ...prev.memoryVault,
-        familyMembers: prev.memoryVault.familyMembers.filter((m) => m.id !== id),
+        ...formData.memoryVault,
+        familyMembers: (formData.memoryVault.familyMembers || []).map((m) =>
+          m.id === id
+            ? { ...m, name: editFamilyData.name.trim(), relationship: editFamilyData.relationship.trim(), note: editFamilyData.note.trim() }
+            : m
+        ),
       },
-    }));
+    };
+    persistUpdate(updated);
+    setEditingFamilyId(null);
+  };
+
+  const handleDeleteFamilyMember = (id) => {
+    const updated = {
+      ...formData,
+      memoryVault: {
+        ...formData.memoryVault,
+        familyMembers: (formData.memoryVault.familyMembers || []).filter((m) => m.id !== id),
+      },
+    };
+    persistUpdate(updated);
   };
 
   const handleAddFact = () => {
     if (!newFact.text.trim()) return;
     const item = {
       id: `pf-${Date.now()}`,
-      ...newFact,
+      category: newFact.category.trim() || 'Memory',
+      text: newFact.text.trim(),
     };
-    setFormData((prev) => ({
-      ...prev,
+    const updated = {
+      ...formData,
       memoryVault: {
-        ...prev.memoryVault,
-        personalFacts: [...(prev.memoryVault.personalFacts || []), item],
+        ...formData.memoryVault,
+        personalFacts: [...(formData.memoryVault.personalFacts || []), item],
       },
-    }));
+    };
+    persistUpdate(updated);
     setNewFact({ category: 'Memory', text: '' });
   };
 
-  const handleDeleteFact = (id) => {
-    setFormData((prev) => ({
-      ...prev,
-      memoryVault: {
-        ...prev.memoryVault,
-        personalFacts: prev.memoryVault.personalFacts.filter((f) => f.id !== id),
-      },
-    }));
+  const handleStartEditFact = (fact) => {
+    setEditingFactId(fact.id);
+    setEditFactData({ category: fact.category || 'Memory', text: fact.text || '' });
   };
 
-  const handleAddCaretakerNote = () => {
-    if (!newNote.text.trim()) return;
-    const item = {
-      id: `cn-${Date.now()}`,
-      title: newNote.title.trim() || 'Daily Tip',
-      text: newNote.text.trim(),
+  const handleSaveEditFact = (id) => {
+    if (!editFactData.text.trim()) return;
+    const updated = {
+      ...formData,
+      memoryVault: {
+        ...formData.memoryVault,
+        personalFacts: (formData.memoryVault.personalFacts || []).map((f) =>
+          f.id === id
+            ? { ...f, category: editFactData.category.trim() || 'Memory', text: editFactData.text.trim() }
+            : f
+        ),
+      },
     };
-    setFormData((prev) => ({
-      ...prev,
-      memoryVault: {
-        ...prev.memoryVault,
-        caretakerNotes: [...(prev.memoryVault.caretakerNotes || []), item],
-      },
-    }));
-    setNewNote({ title: '', text: '' });
+    persistUpdate(updated);
+    setEditingFactId(null);
   };
 
-  const handleDeleteCaretakerNote = (id) => {
-    setFormData((prev) => ({
-      ...prev,
+  const handleDeleteFact = (id) => {
+    const updated = {
+      ...formData,
       memoryVault: {
-        ...prev.memoryVault,
-        caretakerNotes: prev.memoryVault.caretakerNotes.filter((n) => n.id !== id),
+        ...formData.memoryVault,
+        personalFacts: (formData.memoryVault.personalFacts || []).filter((f) => f.id !== id),
       },
-    }));
+    };
+    persistUpdate(updated);
   };
 
   const handleAddEmergencyContact = () => {
@@ -219,7 +276,7 @@ export const MemoryVaultManager = ({ profile = {}, onSaveProfile }) => {
           }`}
         >
           <Brain className="w-6 h-6" aria-hidden="true" />
-          <span>Memory Vault</span>
+          <span>Manage Memories</span>
         </button>
 
         <button
@@ -247,44 +304,100 @@ export const MemoryVaultManager = ({ profile = {}, onSaveProfile }) => {
         </button>
       </div>
 
-      {/* SECTION 1: MEMORY VAULT */}
+      {/* SECTION 1: MANAGE MEMORIES (Add / Edit / Delete People & Anecdotes) */}
       {activeSection === 'vault' && (
         <div className="space-y-6">
-          {/* Family Connections */}
+          {/* Manage People */}
           <div className="bg-white border-3 border-elderBlue-100 rounded-3xl p-6 shadow-sm">
             <div className="flex items-center gap-3 pb-4 border-b-2 border-elderBlue-100">
               <Users className="w-7 h-7 text-elderBlue-800 stroke-[2.5]" aria-hidden="true" />
               <div>
-                <h4 className="text-2xl font-bold text-elderBlue-950">Family Members & Connections</h4>
-                <p className="text-lg text-elderBlue-700">ElderVoice AI references these names during conversations.</p>
+                <h4 className="text-2xl font-bold text-elderBlue-950">Manage People & Family</h4>
+                <p className="text-lg text-elderBlue-700">Add, edit, or remove people shown in the Senior View.</p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+            <div className="space-y-3 mt-4">
               {(formData.memoryVault.familyMembers || []).map((fm) => (
                 <div
                   key={fm.id}
-                  className="p-4 rounded-2xl bg-warmWhite-paper border-2 border-elderBlue-200 flex items-start justify-between gap-3"
+                  className="p-3.5 rounded-2xl bg-warmWhite-paper border-2 border-elderBlue-200 flex flex-col md:flex-row md:items-center justify-between gap-3"
                 >
-                  <div>
-                    <h5 className="text-xl font-bold text-elderBlue-950">
-                      {fm.name} <span className="text-elderBlue-600 font-semibold">({fm.relationship})</span>
-                    </h5>
-                    <p className="text-lg text-elderBlue-800 font-medium mt-1">{fm.note}</p>
-                  </div>
-                  <button
-                    onClick={() => handleDeleteFamilyMember(fm.id)}
-                    aria-label={`Remove ${fm.name}`}
-                    className="p-2 text-crimsonAlert-700 hover:bg-crimsonAlert-50 rounded-xl"
-                  >
-                    <Trash2 className="w-5 h-5 stroke-[2.5]" aria-hidden="true" />
-                  </button>
+                  {editingFamilyId === fm.id ? (
+                    <div className="flex-1 flex flex-col md:flex-row gap-2">
+                      <input
+                        type="text"
+                        value={editFamilyData.name}
+                        onChange={(e) => setEditFamilyData({ ...editFamilyData, name: e.target.value })}
+                        placeholder="Name"
+                        className="w-full md:w-1/4 min-h-[44px] px-3 text-base font-semibold bg-white border-2 border-elderBlue-300 rounded-xl"
+                      />
+                      <input
+                        type="text"
+                        value={editFamilyData.relationship}
+                        onChange={(e) => setEditFamilyData({ ...editFamilyData, relationship: e.target.value })}
+                        placeholder="Relation"
+                        className="w-full md:w-1/4 min-h-[44px] px-3 text-base font-semibold bg-white border-2 border-elderBlue-300 rounded-xl"
+                      />
+                      <input
+                        type="text"
+                        value={editFamilyData.note}
+                        onChange={(e) => setEditFamilyData({ ...editFamilyData, note: e.target.value })}
+                        placeholder="1-line anecdote"
+                        className="w-full md:w-1/2 min-h-[44px] px-3 text-base font-semibold bg-white border-2 border-elderBlue-300 rounded-xl"
+                      />
+                      <div className="flex gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleSaveEditFamily(fm.id)}
+                          aria-label={`Save ${fm.name}`}
+                          className="p-2.5 bg-emeraldSuccess-700 text-white rounded-xl hover:bg-emeraldSuccess-800"
+                        >
+                          <Check className="w-5 h-5 stroke-[2.5]" aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingFamilyId(null)}
+                          aria-label="Cancel edit"
+                          className="p-2.5 bg-elderBlue-100 text-elderBlue-900 rounded-xl hover:bg-elderBlue-200"
+                        >
+                          <X className="w-5 h-5 stroke-[2.5]" aria-hidden="true" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="text-lg text-elderBlue-950">
+                        <span className="font-bold">{fm.name}</span>{' '}
+                        <span className="text-elderBlue-700 font-semibold">({fm.relationship})</span>
+                        {fm.note && <span className="text-elderBlue-800"> — {fm.note}</span>}
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleStartEditFamily(fm)}
+                          aria-label={`Edit ${fm.name}`}
+                          className="p-2 text-elderBlue-800 hover:bg-elderBlue-100 rounded-xl"
+                        >
+                          <Edit2 className="w-5 h-5 stroke-[2.5]" aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteFamilyMember(fm.id)}
+                          aria-label={`Remove ${fm.name}`}
+                          className="p-2 text-crimsonAlert-700 hover:bg-crimsonAlert-50 rounded-xl"
+                        >
+                          <Trash2 className="w-5 h-5 stroke-[2.5]" aria-hidden="true" />
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
 
-            {/* Add Family Member Inline */}
-            <div className="mt-6 p-4 rounded-2xl bg-elderBlue-50 border-2 border-elderBlue-200 flex flex-col md:flex-row gap-3 items-center">
+            {/* Add Person Form */}
+            <div className="mt-5 p-4 rounded-2xl bg-elderBlue-50 border-2 border-elderBlue-200 flex flex-col md:flex-row gap-3 items-center">
               <input
                 type="text"
                 placeholder="Name (e.g. Sarah)"
@@ -301,7 +414,7 @@ export const MemoryVaultManager = ({ profile = {}, onSaveProfile }) => {
               />
               <input
                 type="text"
-                placeholder="Memory note (e.g. Visits Sundays with grandson)"
+                placeholder="1-line anecdote (e.g. Visits Sundays with Leo)"
                 value={newFamily.note}
                 onChange={(e) => setNewFamily({ ...newFamily, note: e.target.value })}
                 className="w-full md:w-1/2 min-h-[50px] px-3 text-lg font-semibold bg-white border-2 border-elderBlue-200 rounded-xl text-elderBlue-950"
@@ -317,51 +430,99 @@ export const MemoryVaultManager = ({ profile = {}, onSaveProfile }) => {
             </div>
           </div>
 
-          {/* Personal Facts & Cherished Memories */}
+          {/* Manage Anecdotes */}
           <div className="bg-white border-3 border-elderBlue-100 rounded-3xl p-6 shadow-sm">
             <div className="flex items-center gap-3 pb-4 border-b-2 border-elderBlue-100">
               <Bookmark className="w-7 h-7 text-elderBlue-800 stroke-[2.5]" aria-hidden="true" />
               <div>
-                <h4 className="text-2xl font-bold text-elderBlue-950">Personal Facts & Reminiscence Triggers</h4>
-                <p className="text-lg text-elderBlue-700">Past career, favorite songs, beloved pets, and soothing topics.</p>
+                <h4 className="text-2xl font-bold text-elderBlue-950">Manage Anecdotes & Memories</h4>
+                <p className="text-lg text-elderBlue-700">Add, edit, or remove personal anecdotes shown in the Senior View.</p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+            <div className="space-y-3 mt-4">
               {(formData.memoryVault.personalFacts || []).map((fact) => (
                 <div
                   key={fact.id}
-                  className="p-4 rounded-2xl bg-warmWhite-paper border-2 border-elderBlue-200 flex items-start justify-between gap-3"
+                  className="p-3.5 rounded-2xl bg-warmWhite-paper border-2 border-elderBlue-200 flex flex-col md:flex-row md:items-center justify-between gap-3"
                 >
-                  <div>
-                    <span className="text-base font-bold text-elderBlue-600 uppercase tracking-wide">
-                      {fact.category}
-                    </span>
-                    <p className="text-lg text-elderBlue-950 font-bold mt-1">{fact.text}</p>
-                  </div>
-                  <button
-                    onClick={() => handleDeleteFact(fact.id)}
-                    aria-label={`Remove ${fact.text}`}
-                    className="p-2 text-crimsonAlert-700 hover:bg-crimsonAlert-50 rounded-xl"
-                  >
-                    <Trash2 className="w-5 h-5 stroke-[2.5]" aria-hidden="true" />
-                  </button>
+                  {editingFactId === fact.id ? (
+                    <div className="flex-1 flex flex-col md:flex-row gap-2">
+                      <input
+                        type="text"
+                        value={editFactData.category}
+                        onChange={(e) => setEditFactData({ ...editFactData, category: e.target.value })}
+                        placeholder="Category"
+                        className="w-full md:w-1/3 min-h-[44px] px-3 text-base font-semibold bg-white border-2 border-elderBlue-300 rounded-xl"
+                      />
+                      <input
+                        type="text"
+                        value={editFactData.text}
+                        onChange={(e) => setEditFactData({ ...editFactData, text: e.target.value })}
+                        placeholder="Anecdote text"
+                        className="w-full md:w-2/3 min-h-[44px] px-3 text-base font-semibold bg-white border-2 border-elderBlue-300 rounded-xl"
+                      />
+                      <div className="flex gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleSaveEditFact(fact.id)}
+                          aria-label={`Save ${fact.category}`}
+                          className="p-2.5 bg-emeraldSuccess-700 text-white rounded-xl hover:bg-emeraldSuccess-800"
+                        >
+                          <Check className="w-5 h-5 stroke-[2.5]" aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingFactId(null)}
+                          aria-label="Cancel edit"
+                          className="p-2.5 bg-elderBlue-100 text-elderBlue-900 rounded-xl hover:bg-elderBlue-200"
+                        >
+                          <X className="w-5 h-5 stroke-[2.5]" aria-hidden="true" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="text-lg text-elderBlue-950">
+                        <span className="font-bold text-elderBlue-700 uppercase text-base mr-2">[{fact.category}]</span>
+                        <span className="font-medium">{fact.text}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleStartEditFact(fact)}
+                          aria-label={`Edit ${fact.category}`}
+                          className="p-2 text-elderBlue-800 hover:bg-elderBlue-100 rounded-xl"
+                        >
+                          <Edit2 className="w-5 h-5 stroke-[2.5]" aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteFact(fact.id)}
+                          aria-label={`Remove ${fact.text}`}
+                          className="p-2 text-crimsonAlert-700 hover:bg-crimsonAlert-50 rounded-xl"
+                        >
+                          <Trash2 className="w-5 h-5 stroke-[2.5]" aria-hidden="true" />
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
 
-            {/* Add Fact Inline */}
-            <div className="mt-6 p-4 rounded-2xl bg-elderBlue-50 border-2 border-elderBlue-200 flex flex-col md:flex-row gap-3 items-center">
+            {/* Add Anecdote Form */}
+            <div className="mt-5 p-4 rounded-2xl bg-elderBlue-50 border-2 border-elderBlue-200 flex flex-col md:flex-row gap-3 items-center">
               <input
                 type="text"
-                placeholder="Category (e.g. Favorite Song, Career, Pet)"
+                placeholder="Category (e.g. Favorite Song, Career)"
                 value={newFact.category}
                 onChange={(e) => setNewFact({ ...newFact, category: e.target.value })}
                 className="w-full md:w-1/3 min-h-[50px] px-3 text-lg font-semibold bg-white border-2 border-elderBlue-200 rounded-xl text-elderBlue-950"
               />
               <input
                 type="text"
-                placeholder="Cherished fact or story (e.g. Loved teaching literature for 32 years)"
+                placeholder="Anecdote or memory (e.g. Loved rose gardening)"
                 value={newFact.text}
                 onChange={(e) => setNewFact({ ...newFact, text: e.target.value })}
                 className="w-full md:w-2/3 min-h-[50px] px-3 text-lg font-semibold bg-white border-2 border-elderBlue-200 rounded-xl text-elderBlue-950"
@@ -369,64 +530,6 @@ export const MemoryVaultManager = ({ profile = {}, onSaveProfile }) => {
               <button
                 type="button"
                 onClick={handleAddFact}
-                className="w-full md:w-auto min-h-[50px] px-5 py-2 rounded-xl bg-elderBlue-900 text-warmWhite font-bold text-lg hover:bg-elderBlue-950 flex items-center justify-center gap-1.5 flex-shrink-0"
-              >
-                <Plus className="w-5 h-5" aria-hidden="true" />
-                <span>Add</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Caretaker Routine Notes */}
-          <div className="bg-white border-3 border-elderBlue-100 rounded-3xl p-6 shadow-sm">
-            <div className="flex items-center gap-3 pb-4 border-b-2 border-elderBlue-100">
-              <FileText className="w-7 h-7 text-elderBlue-800 stroke-[2.5]" aria-hidden="true" />
-              <div>
-                <h4 className="text-2xl font-bold text-elderBlue-950">Daily Caretaker Notes & Calming Techniques</h4>
-                <p className="text-lg text-elderBlue-700">Guidelines shared across family and shift caregivers.</p>
-              </div>
-            </div>
-
-            <div className="space-y-3 mt-4">
-              {(formData.memoryVault.caretakerNotes || []).map((cn) => (
-                <div
-                  key={cn.id}
-                  className="p-4 rounded-2xl bg-warmWhite-paper border-2 border-elderBlue-200 flex items-start justify-between gap-3"
-                >
-                  <div>
-                    <h5 className="text-xl font-bold text-elderBlue-950">{cn.title}</h5>
-                    <p className="text-lg text-elderBlue-800 font-medium mt-1">{cn.text}</p>
-                  </div>
-                  <button
-                    onClick={() => handleDeleteCaretakerNote(cn.id)}
-                    aria-label={`Remove ${cn.title}`}
-                    className="p-2 text-crimsonAlert-700 hover:bg-crimsonAlert-50 rounded-xl"
-                  >
-                    <Trash2 className="w-5 h-5 stroke-[2.5]" aria-hidden="true" />
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            {/* Add Caretaker Note Inline */}
-            <div className="mt-6 p-4 rounded-2xl bg-elderBlue-50 border-2 border-elderBlue-200 flex flex-col md:flex-row gap-3 items-center">
-              <input
-                type="text"
-                placeholder="Topic / Title (e.g. Sundowning Guide)"
-                value={newNote.title}
-                onChange={(e) => setNewNote({ ...newNote, title: e.target.value })}
-                className="w-full md:w-1/3 min-h-[50px] px-3 text-lg font-semibold bg-white border-2 border-elderBlue-200 rounded-xl text-elderBlue-950"
-              />
-              <input
-                type="text"
-                placeholder="Actionable care tip (e.g. Offer warm chamomile tea at 4:30 PM)"
-                value={newNote.text}
-                onChange={(e) => setNewNote({ ...newNote, text: e.target.value })}
-                className="w-full md:w-2/3 min-h-[50px] px-3 text-lg font-semibold bg-white border-2 border-elderBlue-200 rounded-xl text-elderBlue-950"
-              />
-              <button
-                type="button"
-                onClick={handleAddCaretakerNote}
                 className="w-full md:w-auto min-h-[50px] px-5 py-2 rounded-xl bg-elderBlue-900 text-warmWhite font-bold text-lg hover:bg-elderBlue-950 flex items-center justify-center gap-1.5 flex-shrink-0"
               >
                 <Plus className="w-5 h-5" aria-hidden="true" />

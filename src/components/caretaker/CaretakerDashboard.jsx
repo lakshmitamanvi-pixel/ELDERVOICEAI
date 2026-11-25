@@ -28,7 +28,7 @@ import {
   deleteAppointment,
 } from '../../services/caretakerService.js';
 
-export const CaretakerDashboard = () => {
+export const CaretakerDashboard = ({ onProfileUpdated }) => {
   const [activeTab, setActiveTab] = useState('adherence');
   const [profile, setProfile] = useState(null);
   const [medications, setMedications] = useState([]);
@@ -149,6 +149,7 @@ export const CaretakerDashboard = () => {
     try {
       const result = await saveProfileData(profileData);
       setProfile(profileData);
+      if (onProfileUpdated) onProfileUpdated(profileData);
       showNotification(
         result.live
           ? 'Profile & Memory Vault synchronized to live Firestore.'
@@ -277,7 +278,7 @@ export const CaretakerDashboard = () => {
               }`}
             >
               <Brain className="w-6 h-6 stroke-[2.5]" aria-hidden="true" />
-              <span>Memory Vault</span>
+              <span>Manage Memories</span>
             </button>
           </nav>
 

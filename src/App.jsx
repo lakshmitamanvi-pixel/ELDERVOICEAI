@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { User, Users, Heart, Shield, Activity, BellRing } from 'lucide-react';
-import { SeniorVoiceAssistant, EmergencyAlertButton, MedicationReminderCard } from './components/elderly/index.js';
+import { SeniorVoiceAssistant, EmergencyAlertButton, MedicationReminderCard, MemoryPeopleSection } from './components/elderly/index.js';
 import { CaretakerDashboard } from './components/caretaker/index.js';
 import { formatSeniorDate, formatSeniorTime } from './utils/formatters.js';
-import { subscribeToMedications, updateMedication } from './services/caretakerService.js';
+import { subscribeToMedications, updateMedication, subscribeToProfile } from './services/caretakerService.js';
 import { sendEmergencyEmailAlert } from './services/email.js';
 import { checkStartupHealth } from './services/geminiService.js';
 
@@ -11,6 +11,7 @@ export function App() {
   const [activeTab, setActiveTab] = useState('senior');
   const [currentTime, setCurrentTime] = useState(new Date());
   const [medications, setMedications] = useState([]);
+  const [profile, setProfile] = useState(null);
   const [emergencyStatus, setEmergencyStatus] = useState(null);
 
   useEffect(() => {
@@ -25,10 +26,16 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = subscribeToMedications((data) => {
+    const unsubMeds = subscribeToMedications((data) => {
       setMedications(data);
     });
-    return () => unsubscribe();
+    const unsubProfile = subscribeToProfile((data) => {
+      setProfile(data);
+    });
+    return () => {
+      unsubMeds();
+      unsubProfile();
+    };
   }, []);
 
   const handleEmergencyAlert = async () => {
@@ -156,11 +163,15 @@ export function App() {
                 ))}
               </div>
             </section>
+
+            <section aria-labelledby="memories-heading">
+              <MemoryPeopleSection profile={profile || {}} />
+            </section>
           </div>
         ) : (
           <section aria-labelledby="caretaker-heading">
             <h2 id="caretaker-heading" className="sr-only">Caretaker Dashboard</h2>
-            <CaretakerDashboard />
+            <CaretakerDashboard onProfileUpdated={setProfile} />
           </section>
         )}
       </main>
