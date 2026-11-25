@@ -43,11 +43,11 @@ function assert(condition, message) {
 console.log('--- 1. Configuration Constants & Model Choice ---');
 assert(typeof PRIMARY_MODEL === 'string' && PRIMARY_MODEL.length > 0, `Primary model is configured: ${PRIMARY_MODEL}`);
 assert(typeof FALLBACK_MODEL === 'string' && FALLBACK_MODEL !== PRIMARY_MODEL, `Fallback model is distinct: ${FALLBACK_MODEL}`);
-assert(PRIMARY_TIMEOUT_MS === 3000, `Primary timeout is 3000ms (got: ${PRIMARY_TIMEOUT_MS}ms)`);
+assert(PRIMARY_TIMEOUT_MS >= 4000 && PRIMARY_TIMEOUT_MS <= 5000, `Primary TTFT timeout is ~4-5s (got: ${PRIMARY_TIMEOUT_MS}ms)`);
 assert(HEDGE_DELAY_MS === 2000, `Hedged delay is 2000ms (got: ${HEDGE_DELAY_MS}ms)`);
-assert(FALLBACK_TIMEOUT_MS === 5000, `Fallback timeout is 5000ms (got: ${FALLBACK_TIMEOUT_MS}ms)`);
+assert(FALLBACK_TIMEOUT_MS >= 5000, `Fallback timeout is >= 5000ms (got: ${FALLBACK_TIMEOUT_MS}ms)`);
 assert(FILLER_TIMEOUT_MS === 1500, `Canned filler timeout is 1500ms (got: ${FILLER_TIMEOUT_MS}ms)`);
-assert(MAX_OUTPUT_TOKENS === 100, `Max output tokens capped at 100 (got: ${MAX_OUTPUT_TOKENS})`);
+assert(MAX_OUTPUT_TOKENS >= 256, `Max output tokens raised for thinking headroom (got: ${MAX_OUTPUT_TOKENS})`);
 
 // ----------------------------------------------------------------------------
 // Test 2: Prompt Trim & Minimal Context Subset Injection (Requirement 6)
