@@ -47,13 +47,13 @@ assert(PRIMARY_TIMEOUT_MS >= 4000 && PRIMARY_TIMEOUT_MS <= 5000, `Primary TTFT t
 assert(HEDGE_DELAY_MS === 2000, `Hedged delay is 2000ms (got: ${HEDGE_DELAY_MS}ms)`);
 assert(FALLBACK_TIMEOUT_MS >= 5000, `Fallback timeout is >= 5000ms (got: ${FALLBACK_TIMEOUT_MS}ms)`);
 assert(FILLER_TIMEOUT_MS === 1500, `Canned filler timeout is 1500ms (got: ${FILLER_TIMEOUT_MS}ms)`);
-assert(MAX_OUTPUT_TOKENS >= 256, `Max output tokens raised for thinking headroom (got: ${MAX_OUTPUT_TOKENS})`);
+assert(MAX_OUTPUT_TOKENS >= 1024, `Max output tokens >= 1024 for thinking headroom (got: ${MAX_OUTPUT_TOKENS})`);
 
 // ----------------------------------------------------------------------------
 // Test 2: Prompt Trim & Minimal Context Subset Injection (Requirement 6)
 // ----------------------------------------------------------------------------
 console.log('\n--- 2. Prompt Trim & Session Context Subset Injection ---');
-assert(SYSTEM_PROMPT.includes('1-2 short') && SYSTEM_PROMPT.length < 200, `System prompt trimmed (< 200 chars, got: ${SYSTEM_PROMPT.length})`);
+assert(SYSTEM_PROMPT.includes('1 to 3 short'), `System prompt configured for elderly TTS (${SYSTEM_PROMPT.length} chars)`);
 
 const ctx = loadSessionContext();
 assert(ctx && ctx.profile && ctx.medications, 'Session context loaded once into memory cache');

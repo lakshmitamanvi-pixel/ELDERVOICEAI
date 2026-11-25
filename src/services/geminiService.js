@@ -63,7 +63,7 @@ export const PRIMARY_TIMEOUT_MS = Number(readEnvVar(['VITE_PRIMARY_TIMEOUT_MS'])
 export const HEDGE_DELAY_MS = Number(readEnvVar(['VITE_HEDGE_DELAY_MS']) || 2000);
 export const FALLBACK_TIMEOUT_MS = Number(readEnvVar(['VITE_FALLBACK_TIMEOUT_MS']) || 25000);
 export const FILLER_TIMEOUT_MS = Number(readEnvVar(['VITE_FILLER_TIMEOUT_MS']) || 1500);
-export const MAX_OUTPUT_TOKENS = Number(readEnvVar(['VITE_MAX_OUTPUT_TOKENS']) || 512);
+export const MAX_OUTPUT_TOKENS = Math.max(1024, Number(readEnvVar(['VITE_MAX_OUTPUT_TOKENS']) || 1024));
 
 /**
  * ----------------------------------------------------------------------------
@@ -394,11 +394,16 @@ export const getRelevantContextSubset = (query = '') => {
 };
 
 /**
- * Shortened strict system prompt (capping reply to 1-2 spoken sentences)
- * Answer about people/medicines/schedule ONLY from FACTS.
+ * System prompt for ElderVoice elderly-assistant (read aloud via TTS).
  */
 export const SYSTEM_PROMPT =
-  'You are ElderVoice AI. Reply in 1-2 short, warm sentences. Answer people, medicines, or schedule ONLY from FACTS. If not in FACTS, say: "I\'m not sure, shall I ask Sarah?" Never invent facts.';
+  'You are ElderVoice, a warm, kind companion for an elderly person. ' +
+  'Reply in 1 to 3 short sentences using plain, easy words. ' +
+  'Never use markdown, bullet points, or emojis because your reply is read aloud. ' +
+  'Ask at most 1 gentle follow-up question. ' +
+  'For general chat, greetings, stories, jokes, or feelings, respond warmly and naturally. ' +
+  'When asked about family, people, medications, appointments, or personal events, answer ONLY from the provided RETRIEVED_MEMORY_CONTEXT; if the answer is not in that context, say "I\'m not sure, shall I ask ur family?" ' +
+  'Never give medical advice or medication dosing instructions.';
 
 export const SYSTEM = SYSTEM_PROMPT; // Backward compatibility alias
 
@@ -732,13 +737,52 @@ const BLOCKED_FINISH_REASONS = new Set([
 
 export function buildThinkingConfig(modelName = '') {
   const lower = String(modelName).toLowerCase();
-  if (lower.includes('3.5')) {
+  if (lower.includes('3.5') || lower.includes('3.1') || lower.includes('3.0')) {
     return { thinkingLevel: 'MINIMAL' };
   }
-  if (lower.includes('3.6') || lower.includes('3.7') || lower.includes('2.5')) {
+  if (lower.includes('3.6') || lower.includes('3.7') || lower.includes('3.8') || lower.includes('2.5')) {
     return { thinkingBudget: 0 };
   }
   return undefined;
+}
+
+export function extractNonThoughtText(responseOrChunk) {
+  const parts = responseOrChunk?.candidates?.[0]?.content?.parts;
+  if (Array.isArray(parts)) {
+    return parts
+      .filter((p) => p && !p.thought && typeof p.text === 'string')
+      .map((p) => p.text)
+      .join('');
+  }
+  return typeof responseOrChunk?.text === 'string' ? responseOrChunk.text : '';
+}
+
+function extractSafetyCategories(responseOrChunk) {
+  const ratings = [
+    ...(responseOrChunk?.candidates?.[0]?.safetyRatings || []),
+    ...(responseOrChunk?.promptFeedback?.safetyRatings || []),
+  ];
+  const flagged = ratings
+    .filter((r) => r && (r.blocked || (r.probability && r.probability !== 'NEGLIGIBLE' && r.probability !== 'LOW')))
+    .map((r) => `${r.category}:${r.probability || 'BLOCKED'}`);
+  return [...new Set(flagged)];
+}
+
+function logGeminiRawDebug({ model, rawResponse, finishReason, promptFeedback, usageMetadata, extractedTextLength }) {
+  if (typeof window !== 'undefined') return; // Server-side only
+  const rawJson = (() => {
+    try {
+      return JSON.stringify(rawResponse ?? null).slice(0, 2000);
+    } catch (_) {
+      return String(rawResponse).slice(0, 2000);
+    }
+  })();
+  const promptTokens = usageMetadata?.promptTokenCount ?? 'N/A';
+  const candidatesTokens = usageMetadata?.candidatesTokenCount ?? 'N/A';
+  const thoughtsTokens = usageMetadata?.thoughtsTokenCount ?? 0;
+  console.log(
+    `[GeminiRawDebug] model=${model} | finishReason=${finishReason || 'UNKNOWN'} | promptFeedback=${JSON.stringify(promptFeedback ?? null)} | tokens(prompt=${promptTokens},candidates=${candidatesTokens},thoughts=${thoughtsTokens}) | extractedTextLength=${extractedTextLength} | raw=${rawJson}`
+  );
 }
 
 function hasUsableText(text) {
@@ -839,13 +883,14 @@ export async function call_llm(prompt, options = {}) {
     return emitCanned(false, reason, 'N/A', reason, 'CANNED_FALLBACK');
   }
 
-  const runModelStream = async (modelName, ttftTimeoutMs, role) => {
+  const runModelStream = async (modelName, ttftTimeoutMs, role, promptOverride = null) => {
     const abortController = new AbortController();
     let firstTokenArrived = false;
     let timedOut = false;
     let ttftMs = null;
     let spokenSentencesCount = 0;
     const attemptStart = Date.now();
+    const effectivePrompt = promptOverride ?? prompt;
 
     const ttftTimer = setTimeout(() => {
       if (!firstTokenArrived) {
@@ -864,7 +909,7 @@ export async function call_llm(prompt, options = {}) {
     const thinkingConfig = buildThinkingConfig(modelName);
     const config = {
       systemInstruction,
-      temperature: 0.2,
+      temperature: 0.4,
       maxOutputTokens: MAX_OUTPUT_TOKENS,
       abortSignal: abortController.signal,
       ...(thinkingConfig ? { thinkingConfig } : {}),
@@ -902,23 +947,35 @@ export async function call_llm(prompt, options = {}) {
       } else {
         stream = await client.models.generateContentStream({
           model: modelName,
-          contents: prompt,
+          contents: effectivePrompt,
           config,
         });
       }
 
       let fullText = '';
       let finishReason = null;
+      let promptFeedback = null;
+      let usageMetadata = null;
+      let lastChunk = null;
+      let safetyCategories = [];
 
       for await (const chunk of stream) {
         if (abortController.signal.aborted) break;
+        lastChunk = chunk;
 
         const candidateReason = chunk?.candidates?.[0]?.finishReason;
+        if (chunk?.promptFeedback) promptFeedback = chunk.promptFeedback;
+        if (chunk?.usageMetadata) usageMetadata = chunk.usageMetadata;
+        const chunkCats = extractSafetyCategories(chunk);
+        if (chunkCats.length > 0) {
+          safetyCategories = [...new Set([...safetyCategories, ...chunkCats])];
+        }
+
         const blockReason = chunk?.promptFeedback?.blockReason;
         if (blockReason) finishReason = blockReason;
         else if (candidateReason) finishReason = candidateReason;
 
-        const text = chunk.text || '';
+        const text = extractNonThoughtText(chunk);
         if (!text) continue;
 
         if (!firstTokenArrived) {
@@ -935,7 +992,17 @@ export async function call_llm(prompt, options = {}) {
 
       clearTimeout(ttftTimer);
 
+      logGeminiRawDebug({
+        model: modelName,
+        rawResponse: lastChunk,
+        finishReason,
+        promptFeedback,
+        usageMetadata,
+        extractedTextLength: fullText.length,
+      });
+
       if (timedOut && !firstTokenArrived) {
+        console.warn(`FAILURE reason=TTFT_TIMEOUT (${ttftTimeoutMs}ms) model=${modelName}`);
         const err = new Error(`TTFT timeout (${ttftTimeoutMs}ms) on ${modelName}`);
         err.errorType = 'TIMEOUT';
         err.status = 408;
@@ -943,14 +1010,18 @@ export async function call_llm(prompt, options = {}) {
       }
 
       if (finishReason && BLOCKED_FINISH_REASONS.has(finishReason)) {
-        const err = new Error(`Response blocked (${finishReason}) on ${modelName}`);
+        const catStr = safetyCategories.length ? safetyCategories.join(',') : 'UNSPECIFIED';
+        console.warn(`FAILURE reason=BLOCKED_${finishReason} categories=${catStr} model=${modelName}`);
+        const err = new Error(`Response blocked (${finishReason}, categories=${catStr}) on ${modelName}`);
         err.errorType = 'BLOCKED';
         err.status = finishReason;
         err.finishReason = finishReason;
+        err.safetyCategories = safetyCategories;
         throw err;
       }
 
       if (!hasUsableText(fullText)) {
+        console.warn(`FAILURE reason=EMPTY_TEXT finishReason=${finishReason || 'UNKNOWN'} model=${modelName}`);
         const err = new Error(`Empty or unusable text returned by ${modelName} (finishReason=${finishReason || 'UNKNOWN'})`);
         err.errorType = 'EMPTY_TEXT';
         err.status = finishReason || 'EMPTY';
@@ -958,8 +1029,18 @@ export async function call_llm(prompt, options = {}) {
         throw err;
       }
 
-      if (finishReason && finishReason !== 'STOP' && !hasUsableText(fullText)) {
-        const err = new Error(`Non-STOP finish_reason (${finishReason}) with no usable text on ${modelName}`);
+      if (finishReason === 'MAX_TOKENS' && fullText.trim().length < 20) {
+        console.warn(`FAILURE reason=MAX_TOKENS_TOO_SHORT len=${fullText.trim().length} model=${modelName}`);
+        const err = new Error(`MAX_TOKENS with <20 chars (${fullText.trim().length}) on ${modelName}`);
+        err.errorType = 'MAX_TOKENS_TOO_SHORT';
+        err.status = 'MAX_TOKENS';
+        err.finishReason = 'MAX_TOKENS';
+        throw err;
+      }
+
+      if (finishReason && finishReason !== 'STOP') {
+        console.warn(`FAILURE reason=NON_STOP_FINISH_REASON (${finishReason}) model=${modelName}`);
+        const err = new Error(`Non-STOP finish_reason (${finishReason}) on ${modelName}`);
         err.errorType = 'INVALID_FINISH_REASON';
         err.status = finishReason;
         err.finishReason = finishReason;
@@ -974,6 +1055,7 @@ export async function call_llm(prompt, options = {}) {
         model: modelName,
         ttftMs: ttftMs ?? (Date.now() - attemptStart),
         finishReason: finishReason || 'STOP',
+        usageMetadata,
         spokenSentencesCount,
       };
     } catch (err) {
@@ -987,13 +1069,33 @@ export async function call_llm(prompt, options = {}) {
     }
   };
 
+  const runWithTransientRetry = async (modelName, ttftTimeoutMs, role, promptOverride = null) => {
+    try {
+      return await runModelStream(modelName, ttftTimeoutMs, role, promptOverride);
+    } catch (err) {
+      const msg = String(err?.message || '').toLowerCase();
+      const isTransient =
+        !getInjectedFailure(role) &&
+        (err?.errorType === 'TIMEOUT' ||
+          err?.statusCode === 408 ||
+          err?.statusCode === 503 ||
+          msg.includes('503') ||
+          msg.includes('unavailable') ||
+          msg.includes('terminated'));
+      if (!isTransient) throw err;
+      console.warn(`[geminiService] Transient error on ${modelName} (${err.message}); retrying once...`);
+      await new Promise((r) => setTimeout(r, 500));
+      return await runModelStream(modelName, Math.max(ttftTimeoutMs, 12000), role, promptOverride);
+    }
+  };
+
   // 1. Try Primary Model
   const primaryToTry = activePrimaryModel || activeFallbackModel;
   const fallbackToTry = activeFallbackModel && activeFallbackModel !== primaryToTry ? activeFallbackModel : '';
   if (logger) logger.markLLMStart();
 
   try {
-    const res = await runModelStream(primaryToTry, primaryTimeoutMs, 'primary');
+    const res = await runWithTransientRetry(primaryToTry, primaryTimeoutMs, 'primary');
     const totalLatencyMs = Date.now() - callStart;
     if (logger) {
       logger.markLLMFirstToken(res.model);
@@ -1021,6 +1123,7 @@ export async function call_llm(prompt, options = {}) {
       ttftMs: res.ttftMs,
       totalLatencyMs,
       finishReason: res.finishReason,
+      usageMetadata: res.usageMetadata || null,
     };
   } catch (primaryErr) {
     const primaryErrorInfo = {
@@ -1039,10 +1142,14 @@ export async function call_llm(prompt, options = {}) {
       );
     }
 
-    // 2. Retry once on Fallback Model
+    // 2. Retry once on Fallback Model (use softer wording if blocked by SAFETY)
+    const retryPrompt =
+      primaryErrorInfo.errorType === 'BLOCKED'
+        ? `Please respond gently, calmly, and supportively in plain words to this elderly user's request:\n${prompt}`
+        : null;
     console.warn(`FALLBACK USED: reason=${primaryErrorInfo.failureReason}`);
     try {
-      const fbRes = await runModelStream(fallbackToTry, fallbackTimeoutMs, 'fallback');
+      const fbRes = await runWithTransientRetry(fallbackToTry, fallbackTimeoutMs, 'fallback', retryPrompt);
       const totalLatencyMs = Date.now() - callStart;
       if (logger) {
         logger.markLLMFirstToken(fbRes.model);
@@ -1070,6 +1177,7 @@ export async function call_llm(prompt, options = {}) {
         ttftMs: fbRes.ttftMs,
         totalLatencyMs,
         finishReason: fbRes.finishReason,
+        usageMetadata: fbRes.usageMetadata || null,
       };
     } catch (fbErr) {
       const fbErrorInfo = {
@@ -1172,14 +1280,12 @@ export async function handleVoice(transcript, options = {}) {
     console.log('[geminiService] Retrieval skipped for SOS / small talk (0ms added latency)');
   }
 
-  // Inject ONLY top 4 facts into prompt in a "FACTS" block, each with its id
-  const factsBlock = retrievedChunks.length > 0
-    ? `FACTS:\n${retrievedChunks.map((c) => `- [${c.id}]: ${c.text}`).join('\n')}`
-    : 'FACTS:\n(None available)';
+  // Inject ONLY top 4 facts into prompt in a clear "RETRIEVED_MEMORY_CONTEXT" block
+  const contextBlock = retrievedChunks.length > 0
+    ? `RETRIEVED_MEMORY_CONTEXT:\n${retrievedChunks.map((c) => `- [${c.id}]: ${c.text}`).join('\n')}`
+    : 'RETRIEVED_MEMORY_CONTEXT:\n(None)';
 
-  const promptWithContext = shouldSkipRetrieval
-    ? cleanText
-    : `${factsBlock}\n\nUser prompt: "${cleanText}"`;
+  const promptWithContext = `QUESTION:\n${cleanText}\n\n${contextBlock}`;
 
   // Guaranteed SOS path: if emergency words detected, still allow SOS alert if call_llm fails or returns canned
   const result = await call_llm(promptWithContext, {
@@ -1216,6 +1322,7 @@ export async function handleVoice(transcript, options = {}) {
     ttftMs: result.ttftMs ?? null,
     totalLatencyMs: result.totalLatencyMs ?? null,
     finishReason: result.finishReason || 'STOP',
+    usageMetadata: result.usageMetadata || null,
     actionTrigger: { type: 'NONE', targetId: null },
     fastPath: false,
     retrievedFactIds: factIds,
