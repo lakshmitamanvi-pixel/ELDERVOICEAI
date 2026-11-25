@@ -23,17 +23,12 @@ import fs from 'fs';
 import path from 'path';
 import { GoogleGenAI } from '@google/genai';
 
-// Set fallback model as primary to avoid 429 quota exhaustion during benchmarking
-if (typeof process !== 'undefined' && process.env) {
-  if (!process.env.VITE_GEMINI_PRIMARY_MODEL) {
-    process.env.VITE_GEMINI_PRIMARY_MODEL = 'gemini-3.5-flash-lite';
-  }
-}
-
 import {
   handleVoice,
+  call_llm,
   SYSTEM_PROMPT,
   loadSessionContext,
+  PRIMARY_MODEL,
 } from './src/services/geminiService.js';
 import { DEFAULT_PROFILE, DEFAULT_MEDICATIONS, buildFactChunks, getApiKey } from './memory_retriever.js';
 
@@ -372,41 +367,22 @@ export function scoreResponse(questionObj, replyText) {
  * 4. RUNNER: Without RAG (Plain LLM + Full Context Dump)
  * ----------------------------------------------------------------------------
  */
-export async function runWithoutRag(questionObj, aiClient, modelName = 'gemini-3.5-flash-lite') {
+export async function runWithoutRag(questionObj) {
   const fullDump = buildFullContextDump();
   const prompt = `FACTS:\n${fullDump}\n\nUser: "${questionObj.question}"`;
 
   const t0 = Date.now();
-  try {
-    const resp = await aiClient.models.generateContent({
-      model: modelName,
-      contents: prompt,
-      config: {
-        systemInstruction: SYSTEM_PROMPT,
-        temperature: 0.1,
-        maxOutputTokens: 100,
-      },
-    });
-    const latency = Date.now() - t0;
-    const reply = resp.text?.trim() || '';
-    const score = scoreResponse(questionObj, reply);
-    return {
-      reply,
-      latency,
-      score,
-      factIds: ['all_full_dump'],
-      error: null,
-    };
-  } catch (err) {
-    const latency = Date.now() - t0;
-    return {
-      reply: 'Error: ' + err.message,
-      latency,
-      score: { status: 'error', hallucinated: false, wrongly_refused: false, reason: err.message },
-      factIds: [],
-      error: err,
-    };
-  }
+  const res = await call_llm(prompt, { systemInstruction: SYSTEM_PROMPT });
+  const latency = Date.now() - t0;
+  const reply = res.text?.trim() || '';
+  const score = scoreResponse(questionObj, reply);
+  return {
+    reply,
+    latency,
+    score,
+    factIds: ['all_full_dump'],
+    error: res.errorType ? new Error(res.failureReason || res.errorType) : null,
+  };
 }
 
 /**

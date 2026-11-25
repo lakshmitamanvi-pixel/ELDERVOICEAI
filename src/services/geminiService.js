@@ -4,54 +4,66 @@ import { retrieve } from './memory_retriever.js';
 
 /**
  * ----------------------------------------------------------------------------
- * 5. MODEL CONFIGURATION CONSTANTS (Configurable via ENV)
- * Primary = Gemini Flash-class (fastest available)
- * Fallback = Different, faster/smaller model
+ * 5. MODEL CONFIGURATION CONSTANTS (Single ENV source, no hardcoded model IDs)
  * ----------------------------------------------------------------------------
  */
-export const PRIMARY_MODEL =
-  (typeof import.meta !== 'undefined' && import.meta?.env?.VITE_GEMINI_PRIMARY_MODEL) ||
-  (typeof import.meta !== 'undefined' && import.meta?.env?.VITE_GEMINI_MODEL) ||
-  (typeof process !== 'undefined' && (process?.env?.VITE_GEMINI_PRIMARY_MODEL || process?.env?.VITE_GEMINI_MODEL)) ||
-  'gemini-3.6-flash';
+const loadNodeEnvSync = () => {
+  if (typeof process === 'undefined' || !process.versions?.node) return;
+  try {
+    const fs = process.getBuiltinModule?.('fs');
+    const path = process.getBuiltinModule?.('path');
+    if (!fs || !path) return;
+    const envPath = path.resolve(process.cwd(), '.env');
+    if (!fs.existsSync(envPath)) return;
+    const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const idx = trimmed.indexOf('=');
+      if (idx === -1) continue;
+      const key = trimmed.slice(0, idx).trim();
+      let val = trimmed.slice(idx + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      if (!process.env[key]) process.env[key] = val;
+    }
+  } catch (_) {}
+};
+loadNodeEnvSync();
 
-export const FALLBACK_MODEL =
-  (typeof import.meta !== 'undefined' && import.meta?.env?.VITE_GEMINI_FALLBACK_MODEL) ||
-  (typeof process !== 'undefined' && process?.env?.VITE_GEMINI_FALLBACK_MODEL) ||
-  'gemini-3.5-flash-lite';
+const readEnvVar = (keys) => {
+  for (const key of keys) {
+    try {
+      if (typeof import.meta !== 'undefined' && import.meta?.env?.[key]) {
+        return String(import.meta.env[key]).trim();
+      }
+    } catch (_) {}
+    if (typeof process !== 'undefined' && process?.env?.[key]) {
+      return String(process.env[key]).trim();
+    }
+  }
+  return '';
+};
+
+export const PRIMARY_MODEL = readEnvVar(['PRIMARY_MODEL', 'VITE_GEMINI_PRIMARY_MODEL', 'VITE_GEMINI_MODEL']);
+export const FALLBACK_MODEL = readEnvVar(['FALLBACK_MODEL', 'VITE_GEMINI_FALLBACK_MODEL']);
+export const CANNED_FALLBACK_REPLY = "I'm not sure, shall I ask ur family?";
 
 export const MODEL = PRIMARY_MODEL;
-export const MODELS = [PRIMARY_MODEL, FALLBACK_MODEL];
+export const MODELS = [PRIMARY_MODEL, FALLBACK_MODEL].filter(Boolean);
 
-export const PRIMARY_TIMEOUT_MS = Number(
-  (typeof import.meta !== 'undefined' && import.meta?.env?.VITE_PRIMARY_TIMEOUT_MS) ||
-  (typeof process !== 'undefined' && process?.env?.VITE_PRIMARY_TIMEOUT_MS) ||
-  3000
-);
+let activePrimaryModel = PRIMARY_MODEL;
+let activeFallbackModel = FALLBACK_MODEL;
+let modelsUnavailable = false;
+let startupValidationDone = false;
+let validGenerateContentModels = [];
 
-export const HEDGE_DELAY_MS = Number(
-  (typeof import.meta !== 'undefined' && import.meta?.env?.VITE_HEDGE_DELAY_MS) ||
-  (typeof process !== 'undefined' && process?.env?.VITE_HEDGE_DELAY_MS) ||
-  2000
-);
-
-export const FALLBACK_TIMEOUT_MS = Number(
-  (typeof import.meta !== 'undefined' && import.meta?.env?.VITE_FALLBACK_TIMEOUT_MS) ||
-  (typeof process !== 'undefined' && process?.env?.VITE_FALLBACK_TIMEOUT_MS) ||
-  5000
-);
-
-export const FILLER_TIMEOUT_MS = Number(
-  (typeof import.meta !== 'undefined' && import.meta?.env?.VITE_FILLER_TIMEOUT_MS) ||
-  (typeof process !== 'undefined' && process?.env?.VITE_FILLER_TIMEOUT_MS) ||
-  1500
-);
-
-export const MAX_OUTPUT_TOKENS = Number(
-  (typeof import.meta !== 'undefined' && import.meta?.env?.VITE_MAX_OUTPUT_TOKENS) ||
-  (typeof process !== 'undefined' && process?.env?.VITE_MAX_OUTPUT_TOKENS) ||
-  100
-);
+export const PRIMARY_TIMEOUT_MS = Number(readEnvVar(['VITE_PRIMARY_TIMEOUT_MS']) || 4500);
+export const HEDGE_DELAY_MS = Number(readEnvVar(['VITE_HEDGE_DELAY_MS']) || 2000);
+export const FALLBACK_TIMEOUT_MS = Number(readEnvVar(['VITE_FALLBACK_TIMEOUT_MS']) || 25000);
+export const FILLER_TIMEOUT_MS = Number(readEnvVar(['VITE_FILLER_TIMEOUT_MS']) || 1500);
+export const MAX_OUTPUT_TOKENS = Number(readEnvVar(['VITE_MAX_OUTPUT_TOKENS']) || 512);
 
 /**
  * ----------------------------------------------------------------------------
@@ -105,94 +117,126 @@ export function extractErrorDetails(err) {
 
 /**
  * ----------------------------------------------------------------------------
- * STARTUP HEALTH CHECK (Tiny test prompt per configured model)
- * Probes each configured model, logging status code and error body on failure.
+ * STARTUP MODEL VALIDATION (ListModels)
+ * Validates PRIMARY_MODEL and FALLBACK_MODEL against ListModels (generateContent).
+ * - If primary invalid -> loud warning + auto-swap to fallback.
+ * - If both invalid -> log error + use canned reply, never crash.
  * ----------------------------------------------------------------------------
  */
 export async function checkStartupHealth() {
   const client = getPersistentClient();
-  const results = {};
-  console.group('[Gemini HealthCheck] Checking configured models on startup...');
+  console.group('[Gemini StartupValidation] Validating configured models via ListModels...');
+
+  if (PRIMARY_MODEL && FALLBACK_MODEL && PRIMARY_MODEL === FALLBACK_MODEL) {
+    const msg = `Startup assertion failed: PRIMARY_MODEL ('${PRIMARY_MODEL}') must differ from FALLBACK_MODEL ('${FALLBACK_MODEL}').`;
+    console.error(`❌ [Gemini StartupValidation] ${msg}`);
+    console.groupEnd();
+    throw new Error(msg);
+  }
+
+  activePrimaryModel = PRIMARY_MODEL;
+  activeFallbackModel = FALLBACK_MODEL;
+  modelsUnavailable = false;
 
   if (!client) {
     const errorMsg = 'Client initialization failed: VITE_GEMINI_API_KEY is not defined or invalid.';
-    console.error(`[Gemini HealthCheck] FAILED - ${errorMsg}`);
+    console.error(`[Gemini StartupValidation] ERROR - ${errorMsg} Using canned reply fallback.`);
+    modelsUnavailable = true;
+    activePrimaryModel = '';
+    activeFallbackModel = '';
+    startupValidationDone = true;
+    console.log(
+      `[Gemini StartupValidation] Resolved models -> PRIMARY: '${activePrimaryModel || 'NONE'}', FALLBACK: '${activeFallbackModel || 'NONE'}'`
+    );
     console.groupEnd();
     return {
       success: false,
       error: errorMsg,
-      models: {},
+      activePrimaryModel,
+      activeFallbackModel,
+      modelsUnavailable,
+      validModels: [],
     };
   }
 
-  const modelsToCheck = [
-    { role: 'primary', name: PRIMARY_MODEL },
-    { role: 'fallback', name: FALLBACK_MODEL },
-  ];
-
-  let allHealthy = true;
-
-  for (const { role, name } of modelsToCheck) {
-    const startTime = Date.now();
-    const abortController = new AbortController();
-    const timeoutId = setTimeout(() => abortController.abort(), 15000);
-    try {
-      const response = await client.models.generateContent({
-        model: name,
-        contents: 'ping',
-        config: {
-          maxOutputTokens: 5,
-          abortSignal: abortController.signal,
-        },
-      });
-      clearTimeout(timeoutId);
-      const durationMs = Date.now() - startTime;
-      const status = 200;
-      console.log(
-        `%c[Gemini HealthCheck] [${role.toUpperCase()}] Model '${name}': HEALTHY (Status: ${status}, ${durationMs}ms)`,
-        'color: #059669; font-weight: bold;',
-        `\nResponse: "${response.text?.trim()}"`
-      );
-      results[name] = {
-        role,
-        healthy: true,
-        status,
-        durationMs,
-        response: response.text?.trim() || '',
-      };
-    } catch (err) {
-      clearTimeout(timeoutId);
-      allHealthy = false;
-      const durationMs = Date.now() - startTime;
-      const { status, message, errorBody } = extractErrorDetails(err);
-
-      console.error(
-
-        ``
-        `%c[Gemini HealthCheck] [${role.toUpperCase()}] Model '${name}': FAILED (Status: ${status}, ${durationMs}ms)`,
-        'color: #dc2626; font-weight: bold;',
-        '\nStatus:', status,
-        '\nMessage:', message,
-        '\nError Body:', errorBody,
-        '\nRaw Error:', err
-      );
-
-      results[name] = {
-        role,
-        healthy: false,
-        status,
-        durationMs,
-        message,
-        errorBody,
-      };
+  try {
+    const pager = await client.models.list();
+    const discovered = [];
+    for await (const m of pager) {
+      const methods = m.supportedActions || m.supportedGenerationMethods || [];
+      if (methods.includes('generateContent')) {
+        const cleanId = String(m.name || '').replace(/^models\//, '');
+        if (cleanId) discovered.push({ id: cleanId, methods });
+      }
     }
-  }
+    validGenerateContentModels = discovered;
+    const validSet = new Set(discovered.map((d) => d.id));
 
-  console.groupEnd();
-  return {
-    success: allHealthy,
-    models: results,
-  };
+    const primaryValid = Boolean(PRIMARY_MODEL && validSet.has(PRIMARY_MODEL));
+    const fallbackValid = Boolean(FALLBACK_MODEL && validSet.has(FALLBACK_MODEL));
+
+    if (!primaryValid && fallbackValid) {
+      console.warn(
+        `⚠️ [Gemini StartupValidation] LOUD WARNING: PRIMARY_MODEL ('${PRIMARY_MODEL || 'UNSET'}') is NOT valid for generateContent! Auto-swapping primary to FALLBACK_MODEL ('${FALLBACK_MODEL}').`
+      );
+      activePrimaryModel = FALLBACK_MODEL;
+      activeFallbackModel = '';
+    } else if (!primaryValid && !fallbackValid) {
+      console.error(
+        `❌ [Gemini StartupValidation] ERROR: Both PRIMARY_MODEL ('${PRIMARY_MODEL || 'UNSET'}') and FALLBACK_MODEL ('${FALLBACK_MODEL || 'UNSET'}') are invalid for generateContent! Canned reply will be used.`
+      );
+      modelsUnavailable = true;
+      activePrimaryModel = '';
+      activeFallbackModel = '';
+    } else if (primaryValid && !fallbackValid) {
+      console.warn(
+        `⚠️ [Gemini StartupValidation] WARNING: FALLBACK_MODEL ('${FALLBACK_MODEL || 'UNSET'}') is invalid for generateContent. Proceeding with PRIMARY_MODEL ('${PRIMARY_MODEL}') only.`
+      );
+      activeFallbackModel = '';
+    } else {
+      console.log(
+        `✅ [Gemini StartupValidation] Both models verified via ListModels: PRIMARY='${activePrimaryModel}', FALLBACK='${activeFallbackModel}'`
+      );
+    }
+
+    startupValidationDone = true;
+    console.log(
+      `[Gemini StartupValidation] Resolved models -> PRIMARY: '${activePrimaryModel || 'NONE'}', FALLBACK: '${activeFallbackModel || 'NONE'}'`
+    );
+    console.groupEnd();
+    return {
+      success: !modelsUnavailable,
+      activePrimaryModel,
+      activeFallbackModel,
+      modelsUnavailable,
+      swapped: !primaryValid && fallbackValid,
+      validModels: discovered,
+    };
+  } catch (err) {
+    const { status, message } = extractErrorDetails(err);
+    console.error(
+      `[Gemini StartupValidation] ListModels request failed (Status: ${status}, Message: ${message}). Keeping configured env models if present.`
+    );
+    if (!PRIMARY_MODEL && !FALLBACK_MODEL) {
+      modelsUnavailable = true;
+    } else if (!PRIMARY_MODEL && FALLBACK_MODEL) {
+      activePrimaryModel = FALLBACK_MODEL;
+      activeFallbackModel = '';
+    }
+    startupValidationDone = true;
+    console.log(
+      `[Gemini StartupValidation] Resolved models -> PRIMARY: '${activePrimaryModel || 'NONE'}', FALLBACK: '${activeFallbackModel || 'NONE'}'`
+    );
+    console.groupEnd();
+    return {
+      success: !modelsUnavailable,
+      error: message,
+      activePrimaryModel,
+      activeFallbackModel,
+      modelsUnavailable,
+      validModels: [],
+    };
+  }
 }
 
 /**
@@ -562,7 +606,24 @@ export class LatencyLogger {
     this.modelAnswered = 'None';
     this.isFastPath = false;
     this.hedgedFired = false;
+    this.fallbackTriggered = false;
+    this.errorType = null;
+    this.statusCode = null;
+    this.finishReason = null;
+    this.ttftMs = null;
+    this.totalLatencyMs = null;
     this.summaryPrinted = false;
+  }
+
+  markCallOutcome({ modelUsed, fallbackTriggered, errorType, statusCode, ttftMs, totalLatencyMs, finishReason }) {
+    if (modelUsed) this.modelAnswered = modelUsed;
+    this.fallbackTriggered = Boolean(fallbackTriggered);
+    this.hedgedFired = Boolean(fallbackTriggered);
+    this.errorType = errorType || null;
+    this.statusCode = statusCode || null;
+    this.ttftMs = ttftMs ?? this.ttftMs;
+    this.totalLatencyMs = totalLatencyMs ?? this.totalLatencyMs;
+    this.finishReason = finishReason || null;
   }
 
   markFastPath(intent) {
@@ -655,223 +716,381 @@ export class LatencyLogger {
 
 /**
  * ----------------------------------------------------------------------------
- * 1, 2, 3, 4. STREAMING GENERATION WITH HARD TIMEOUT, HEDGED REQUEST,
- * AND SENTENCE-BOUNDARY PIPELINING
+ * CENTRALIZED LLM CALLER: call_llm(prompt, options)
+ * - Tries PRIMARY -> validates result -> on ANY failure retries once on FALLBACK -> else canned reply
+ * - Wraps stream iteration so mid-stream failures never leave half-sentences
+ * - Supports FORCE_PRIMARY_FAIL=timeout|404|empty|safety|midstream for testing
  * ----------------------------------------------------------------------------
  */
-export async function streamWithHedgeAndTimeout({
-  prompt,
-  systemInstruction = SYSTEM_PROMPT,
-  onToken,
-  onSentence,
-  onFirstToken,
-  logger,
-}) {
+const BLOCKED_FINISH_REASONS = new Set([
+  'SAFETY',
+  'RECITATION',
+  'BLOCKLIST',
+  'PROHIBITED_CONTENT',
+  'SPII',
+]);
+
+export function buildThinkingConfig(modelName = '') {
+  const lower = String(modelName).toLowerCase();
+  if (lower.includes('3.5')) {
+    return { thinkingLevel: 'MINIMAL' };
+  }
+  if (lower.includes('3.6') || lower.includes('3.7') || lower.includes('2.5')) {
+    return { thinkingBudget: 0 };
+  }
+  return undefined;
+}
+
+function hasUsableText(text) {
+  return typeof text === 'string' && text.trim().length > 0 && /[a-zA-Z0-9\u0900-\u097F\u0C00-\u0C7F]/.test(text);
+}
+
+function classifyError(err, timedOut = false) {
+  if (timedOut) {
+    return { errorType: 'TIMEOUT', statusCode: 408, failureReason: 'timeout (408)' };
+  }
+  if (err?.errorType) {
+    const code = err.status || 'UNKNOWN';
+    return { errorType: err.errorType, statusCode: code, failureReason: `${err.errorType} (${code}): ${err.message}` };
+  }
+  const { status, message } = extractErrorDetails(err);
+  const numStatus = Number(status);
+  if (numStatus === 404) return { errorType: 'NOT_FOUND', statusCode: 404, failureReason: `HTTP 404: ${message}` };
+  if (numStatus === 429 || String(message).includes('RESOURCE_EXHAUSTED')) {
+    return { errorType: 'RATE_LIMIT', statusCode: 429, failureReason: `HTTP 429: ${message}` };
+  }
+  if (numStatus >= 500 && numStatus < 600) {
+    return { errorType: 'SERVER_ERROR', statusCode: numStatus, failureReason: `HTTP ${numStatus}: ${message}` };
+  }
+  if (err?.name === 'AbortError' || String(message).toLowerCase().includes('abort')) {
+    return { errorType: 'TIMEOUT', statusCode: 408, failureReason: 'timeout (abort)' };
+  }
+  return { errorType: 'API_ERROR', statusCode: status || 'UNKNOWN', failureReason: `${status || 'EXCEPTION'}: ${message}` };
+}
+
+function logGeminiCall({ modelUsed, fallbackTriggered, errorType, statusCode, failureReason, ttftMs, totalLatencyMs, finishReason }) {
+  console.log(
+    `[GeminiCall] model_used=${modelUsed} | fallback_used=${Boolean(fallbackTriggered)} | failure_reason=${failureReason || 'none'} | ttft=${ttftMs ?? 'N/A'}ms | total_latency=${totalLatencyMs}ms | finish_reason=${finishReason || 'UNKNOWN'}`
+  );
+}
+
+function getInjectedFailure(role) {
+  const key = role === 'primary' ? 'FORCE_PRIMARY_FAIL' : 'FORCE_FALLBACK_FAIL';
+  try {
+    if (typeof import.meta !== 'undefined' && import.meta?.env?.[key]) {
+      return String(import.meta.env[key]).trim().toLowerCase();
+    }
+  } catch (_) {}
+  if (typeof process !== 'undefined' && process?.env?.[key]) {
+    return String(process.env[key]).trim().toLowerCase();
+  }
+  return '';
+}
+
+export async function call_llm(prompt, options = {}) {
+  const {
+    systemInstruction = SYSTEM_PROMPT,
+    onToken,
+    onSentence,
+    onFirstToken,
+    logger,
+    primaryTimeoutMs = PRIMARY_TIMEOUT_MS,
+    fallbackTimeoutMs = FALLBACK_TIMEOUT_MS,
+  } = options;
+
+  const callStart = Date.now();
   const client = getPersistentClient();
-  if (!client) {
-    throw new Error('[geminiService] Cannot initialize client: API key missing.');
+
+  if (PRIMARY_MODEL && FALLBACK_MODEL && PRIMARY_MODEL === FALLBACK_MODEL) {
+    throw new Error(`PRIMARY_MODEL ('${PRIMARY_MODEL}') must differ from FALLBACK_MODEL ('${FALLBACK_MODEL}').`);
   }
 
-  const splitter = new SentenceBoundarySplitter((s) => {
-    if (typeof onSentence === 'function') onSentence(s);
-  });
-
-  const runModelStream = async (modelName, abortController) => {
-    const stream = await client.models.generateContentStream({
-      model: modelName,
-      contents: prompt,
-      config: {
-        systemInstruction,
-        temperature: 0.2,
-        maxOutputTokens: MAX_OUTPUT_TOKENS,
-        abortSignal: abortController.signal,
-      },
-    });
-
-    let fullText = '';
-    let isFirst = true;
-
-    for await (const chunk of stream) {
-      if (abortController.signal.aborted) break;
-      const text = chunk.text || '';
-      if (!text) continue;
-
-      if (isFirst) {
-        isFirst = false;
-        if (typeof onFirstToken === 'function') onFirstToken(modelName);
-      }
-
-      fullText += text;
-      splitter.push(text);
-      if (typeof onToken === 'function') onToken(text, fullText);
-    }
-
-    splitter.flush();
-    return { text: fullText, model: modelName };
+  const emitCanned = (fallbackTriggered, errorType, statusCode, failureReason, finishReason = 'CANNED_FALLBACK') => {
+    const totalLatencyMs = Date.now() - callStart;
+    if (typeof onToken === 'function') onToken(CANNED_FALLBACK_REPLY, CANNED_FALLBACK_REPLY);
+    if (typeof onSentence === 'function') onSentence(CANNED_FALLBACK_REPLY);
+    const outcome = {
+      modelUsed: 'canned',
+      fallbackTriggered,
+      errorType,
+      statusCode,
+      failureReason,
+      ttftMs: 0,
+      totalLatencyMs,
+      finishReason,
+    };
+    logGeminiCall(outcome);
+    if (logger) logger.markCallOutcome(outcome);
+    return {
+      text: CANNED_FALLBACK_REPLY,
+      model: 'canned',
+      fallbackTriggered,
+      errorType,
+      statusCode,
+      failureReason,
+      ttftMs: 0,
+      totalLatencyMs,
+      finishReason,
+    };
   };
 
-  // 1. Check Circuit Breaker
-  if (primaryCircuitBreaker.isOpen()) {
-    console.warn(
-      `[CircuitBreaker] Primary model (${PRIMARY_MODEL}) is OPEN. Routing request directly to fallback (${FALLBACK_MODEL}).`
-    );
-    const fallbackController = new AbortController();
-    const fallbackTimeout = setTimeout(() => fallbackController.abort(), FALLBACK_TIMEOUT_MS);
-    try {
-      if (logger) logger.markLLMStart();
-      const res = await runModelStream(FALLBACK_MODEL, fallbackController);
-      clearTimeout(fallbackTimeout);
-      if (logger) {
-        logger.markLLMFirstToken(FALLBACK_MODEL);
-        logger.markLLMDone();
-      }
-      return res;
-    } catch (fbErr) {
-      clearTimeout(fallbackTimeout);
-      const { status, message, errorBody } = extractErrorDetails(fbErr);
-      console.error(
-        `[geminiService] FALLBACK MODEL FAILURE (Circuit Open Direct Route, ${FALLBACK_MODEL}) - Status: ${status}, Message: ${message}`,
-        '\nError Body:',
-        errorBody,
-        fbErr
-      );
-      throw fbErr;
-    }
+  if (modelsUnavailable || !client || (!activePrimaryModel && !activeFallbackModel)) {
+    const reason = client ? 'NO_VALID_MODELS' : 'MISSING_API_KEY';
+    return emitCanned(false, reason, 'N/A', reason, 'CANNED_FALLBACK');
   }
 
-  // 2. Normal Flow: Primary with 3s hard timeout & 2s hedged request
-  if (logger) logger.markLLMStart();
-  const primaryController = new AbortController();
-  let fallbackController = null;
-  let primaryFirstTokenArrived = false;
-  let fallbackFirstTokenArrived = false;
-  let primaryEnded = false;
-  let fallbackEnded = false;
-  let primaryError = null;
-  let fallbackError = null;
+  const runModelStream = async (modelName, ttftTimeoutMs, role) => {
+    const abortController = new AbortController();
+    let firstTokenArrived = false;
+    let timedOut = false;
+    let ttftMs = null;
+    let spokenSentencesCount = 0;
+    const attemptStart = Date.now();
 
-  let primaryTimeoutId = null;
-  let hedgeTimeoutId = null;
-  let fallbackTimeoutId = null;
+    const ttftTimer = setTimeout(() => {
+      if (!firstTokenArrived) {
+        timedOut = true;
+        abortController.abort();
+      }
+    }, ttftTimeoutMs);
 
-  return new Promise((resolve, reject) => {
-    let resolved = false;
+    const splitter = new SentenceBoundarySplitter((s) => {
+      spokenSentencesCount++;
+      if (typeof onSentence === 'function') onSentence(s);
+    });
 
-    const cleanup = () => {
-      if (primaryTimeoutId) clearTimeout(primaryTimeoutId);
-      if (hedgeTimeoutId) clearTimeout(hedgeTimeoutId);
-      if (fallbackTimeoutId) clearTimeout(fallbackTimeoutId);
+    const injectedMode = getInjectedFailure(role);
+
+    const thinkingConfig = buildThinkingConfig(modelName);
+    const config = {
+      systemInstruction,
+      temperature: 0.2,
+      maxOutputTokens: MAX_OUTPUT_TOKENS,
+      abortSignal: abortController.signal,
+      ...(thinkingConfig ? { thinkingConfig } : {}),
     };
 
-    const handleSuccess = (result) => {
-      if (resolved) return;
-      resolved = true;
-      cleanup();
-
-      if (result.model === PRIMARY_MODEL) {
-        primaryCircuitBreaker.recordSuccess(PRIMARY_MODEL);
-        if (fallbackController) fallbackController.abort();
+    try {
+      let stream;
+      if (injectedMode === '404') {
+        const err = new Error(`Injected 404 Not Found for ${modelName}`);
+        err.status = 404;
+        throw err;
+      } else if (injectedMode === 'timeout') {
+        stream = (async function* () {
+          await new Promise((_, reject) => {
+            abortController.signal.addEventListener('abort', () => {
+              const e = new Error(`Injected TTFT timeout (${ttftTimeoutMs}ms) on ${modelName}`);
+              e.name = 'AbortError';
+              reject(e);
+            });
+          });
+        })();
+      } else if (injectedMode === 'empty') {
+        stream = (async function* () {
+          yield { text: '   \n  ', candidates: [{ finishReason: 'STOP' }] };
+        })();
+      } else if (injectedMode === 'safety') {
+        stream = (async function* () {
+          yield { text: '', candidates: [{ finishReason: 'SAFETY' }], promptFeedback: { blockReason: 'SAFETY' } };
+        })();
+      } else if (injectedMode === 'midstream') {
+        stream = (async function* () {
+          yield { text: 'Let me check on that for you, ' };
+          throw new Error(`Injected mid-stream failure on ${modelName}`);
+        })();
       } else {
-        if (primaryController) primaryController.abort();
-      }
-
-      if (logger) logger.markLLMDone();
-      resolve(result);
-    };
-
-    const triggerFallback = () => {
-      if (fallbackController || resolved) return;
-      console.info(`[HedgedRequest] 2s elapsed or primary failure. Firing fallback (${FALLBACK_MODEL}) in parallel.`);
-      if (logger) logger.hedgedFired = true;
-
-      fallbackController = new AbortController();
-      fallbackTimeoutId = setTimeout(() => {
-        if (!resolved && !fallbackFirstTokenArrived) {
-          fallbackController.abort();
-          fallbackEnded = true;
-          if (primaryEnded && !resolved) {
-            cleanup();
-            reject(fallbackError || primaryError || new Error(`Fallback (${FALLBACK_MODEL}) timed out.`));
-          }
-        }
-      }, FALLBACK_TIMEOUT_MS);
-
-      runModelStream(FALLBACK_MODEL, fallbackController)
-        .then((result) => {
-          if (!resolved) {
-            handleSuccess(result);
-          }
-        })
-        .catch((err) => {
-          fallbackEnded = true;
-          fallbackError = err;
-          const { status, message, errorBody } = extractErrorDetails(err);
-          console.error(
-            `[geminiService] FALLBACK MODEL FAILURE (${FALLBACK_MODEL}) - Status: ${status}, Message: ${message}`,
-            '\nError Body:',
-            errorBody,
-            err
-          );
-          if (!resolved && primaryEnded) {
-            cleanup();
-            reject(err);
-          }
+        stream = await client.models.generateContentStream({
+          model: modelName,
+          contents: prompt,
+          config,
         });
+      }
+
+      let fullText = '';
+      let finishReason = null;
+
+      for await (const chunk of stream) {
+        if (abortController.signal.aborted) break;
+
+        const candidateReason = chunk?.candidates?.[0]?.finishReason;
+        const blockReason = chunk?.promptFeedback?.blockReason;
+        if (blockReason) finishReason = blockReason;
+        else if (candidateReason) finishReason = candidateReason;
+
+        const text = chunk.text || '';
+        if (!text) continue;
+
+        if (!firstTokenArrived) {
+          firstTokenArrived = true;
+          clearTimeout(ttftTimer);
+          ttftMs = Date.now() - attemptStart;
+          if (typeof onFirstToken === 'function') onFirstToken(modelName);
+        }
+
+        fullText += text;
+        splitter.push(text);
+        if (typeof onToken === 'function') onToken(text, fullText);
+      }
+
+      clearTimeout(ttftTimer);
+
+      if (timedOut && !firstTokenArrived) {
+        const err = new Error(`TTFT timeout (${ttftTimeoutMs}ms) on ${modelName}`);
+        err.errorType = 'TIMEOUT';
+        err.status = 408;
+        throw err;
+      }
+
+      if (finishReason && BLOCKED_FINISH_REASONS.has(finishReason)) {
+        const err = new Error(`Response blocked (${finishReason}) on ${modelName}`);
+        err.errorType = 'BLOCKED';
+        err.status = finishReason;
+        err.finishReason = finishReason;
+        throw err;
+      }
+
+      if (!hasUsableText(fullText)) {
+        const err = new Error(`Empty or unusable text returned by ${modelName} (finishReason=${finishReason || 'UNKNOWN'})`);
+        err.errorType = 'EMPTY_TEXT';
+        err.status = finishReason || 'EMPTY';
+        err.finishReason = finishReason || 'EMPTY';
+        throw err;
+      }
+
+      if (finishReason && finishReason !== 'STOP' && !hasUsableText(fullText)) {
+        const err = new Error(`Non-STOP finish_reason (${finishReason}) with no usable text on ${modelName}`);
+        err.errorType = 'INVALID_FINISH_REASON';
+        err.status = finishReason;
+        err.finishReason = finishReason;
+        throw err;
+      }
+
+      // Only flush remaining buffered sentence after full validation succeeds
+      splitter.flush();
+
+      return {
+        text: fullText,
+        model: modelName,
+        ttftMs: ttftMs ?? (Date.now() - attemptStart),
+        finishReason: finishReason || 'STOP',
+        spokenSentencesCount,
+      };
+    } catch (err) {
+      clearTimeout(ttftTimer);
+      const classified = classifyError(err, timedOut);
+      err.errorType = classified.errorType;
+      err.statusCode = classified.statusCode;
+      err.failureReason = classified.failureReason;
+      err.spokenSentencesCount = spokenSentencesCount;
+      throw err;
+    }
+  };
+
+  // 1. Try Primary Model
+  const primaryToTry = activePrimaryModel || activeFallbackModel;
+  const fallbackToTry = activeFallbackModel && activeFallbackModel !== primaryToTry ? activeFallbackModel : '';
+  if (logger) logger.markLLMStart();
+
+  try {
+    const res = await runModelStream(primaryToTry, primaryTimeoutMs, 'primary');
+    const totalLatencyMs = Date.now() - callStart;
+    if (logger) {
+      logger.markLLMFirstToken(res.model);
+      logger.markLLMDone();
+    }
+    const outcome = {
+      modelUsed: res.model,
+      fallbackTriggered: false,
+      errorType: null,
+      statusCode: 200,
+      failureReason: null,
+      ttftMs: res.ttftMs,
+      totalLatencyMs,
+      finishReason: res.finishReason,
+    };
+    logGeminiCall(outcome);
+    if (logger) logger.markCallOutcome(outcome);
+    return {
+      text: res.text,
+      model: res.model,
+      fallbackTriggered: false,
+      errorType: null,
+      statusCode: 200,
+      failureReason: null,
+      ttftMs: res.ttftMs,
+      totalLatencyMs,
+      finishReason: res.finishReason,
+    };
+  } catch (primaryErr) {
+    const primaryErrorInfo = {
+      errorType: primaryErr.errorType || 'API_ERROR',
+      statusCode: primaryErr.statusCode || 'UNKNOWN',
+      failureReason: primaryErr.failureReason || primaryErr.message,
     };
 
-    // 2. Hedged request: If primary has no 1st token by 2s, fire fallback in parallel
-    hedgeTimeoutId = setTimeout(() => {
-      if (!primaryFirstTokenArrived && !resolved) {
-        triggerFallback();
-      }
-    }, HEDGE_DELAY_MS);
+    if (!fallbackToTry) {
+      return emitCanned(
+        false,
+        primaryErrorInfo.errorType,
+        primaryErrorInfo.statusCode,
+        primaryErrorInfo.failureReason,
+        primaryErr.finishReason || primaryErrorInfo.errorType
+      );
+    }
 
-    // 1. Timeout: Primary model call gets 3s hard timeout. On timeout -> switch to fallback immediately.
-    primaryTimeoutId = setTimeout(() => {
-      if (!primaryFirstTokenArrived && !primaryEnded && !resolved) {
-        console.warn(`[Timeout] Primary model (${PRIMARY_MODEL}) hit 3s hard timeout. Aborting.`);
-        primaryController.abort();
-        primaryEnded = true;
-        primaryError = new Error(`3s Primary Timeout for ${PRIMARY_MODEL}`);
-        primaryCircuitBreaker.recordFailure(PRIMARY_MODEL, primaryError);
-        if (!fallbackController) {
-          triggerFallback();
-        } else if (fallbackEnded) {
-          cleanup();
-          reject(fallbackError || primaryError);
-        }
+    // 2. Retry once on Fallback Model
+    console.warn(`FALLBACK USED: reason=${primaryErrorInfo.failureReason}`);
+    try {
+      const fbRes = await runModelStream(fallbackToTry, fallbackTimeoutMs, 'fallback');
+      const totalLatencyMs = Date.now() - callStart;
+      if (logger) {
+        logger.markLLMFirstToken(fbRes.model);
+        logger.markLLMDone();
       }
-    }, PRIMARY_TIMEOUT_MS);
+      const outcome = {
+        modelUsed: fbRes.model,
+        fallbackTriggered: true,
+        errorType: primaryErrorInfo.errorType,
+        statusCode: primaryErrorInfo.statusCode,
+        failureReason: primaryErrorInfo.failureReason,
+        ttftMs: fbRes.ttftMs,
+        totalLatencyMs,
+        finishReason: fbRes.finishReason,
+      };
+      logGeminiCall(outcome);
+      if (logger) logger.markCallOutcome(outcome);
+      return {
+        text: fbRes.text,
+        model: fbRes.model,
+        fallbackTriggered: true,
+        errorType: primaryErrorInfo.errorType,
+        statusCode: primaryErrorInfo.statusCode,
+        failureReason: primaryErrorInfo.failureReason,
+        ttftMs: fbRes.ttftMs,
+        totalLatencyMs,
+        finishReason: fbRes.finishReason,
+      };
+    } catch (fbErr) {
+      const fbErrorInfo = {
+        errorType: fbErr.errorType || 'API_ERROR',
+        statusCode: fbErr.statusCode || 'UNKNOWN',
+        failureReason: `${primaryErrorInfo.failureReason} -> fallback failed: ${fbErr.failureReason || fbErr.message}`,
+      };
+      console.error(`[geminiService] Fallback (${fallbackToTry}) also failed: ${fbErrorInfo.failureReason}`);
+      return emitCanned(
+        true,
+        fbErrorInfo.errorType,
+        fbErrorInfo.statusCode,
+        fbErrorInfo.failureReason,
+        fbErr.finishReason || fbErrorInfo.errorType
+      );
+    }
+  }
+}
 
-    // Run Primary Model Stream
-    runModelStream(PRIMARY_MODEL, primaryController)
-      .then((result) => {
-        primaryFirstTokenArrived = true;
-        primaryEnded = true;
-        if (!resolved) {
-          handleSuccess(result);
-        }
-      })
-      .catch((err) => {
-        primaryEnded = true;
-        primaryError = err;
-        const { status, message, errorBody } = extractErrorDetails(err);
-        primaryCircuitBreaker.recordFailure(PRIMARY_MODEL, err);
-        console.error(
-          `[geminiService] PRIMARY MODEL FAILURE (${PRIMARY_MODEL}) - Status: ${status}, Message: ${message}`,
-          '\nError Body:',
-          errorBody,
-          `\nAction: Routing request to fallback (${FALLBACK_MODEL}) without silent failure.`,
-          err
-        );
-        if (!fallbackController && !resolved) {
-          triggerFallback();
-        } else if (fallbackEnded && !resolved) {
-          cleanup();
-          reject(err);
-        }
-      });
-  });
+export async function streamWithHedgeAndTimeout(opts) {
+  return call_llm(opts.prompt, opts);
 }
 
 /**
@@ -962,97 +1181,57 @@ export async function handleVoice(transcript, options = {}) {
     ? cleanText
     : `${factsBlock}\n\nUser prompt: "${cleanText}"`;
 
-  try {
-    const result = await streamWithHedgeAndTimeout({
-      prompt: promptWithContext,
-      systemInstruction: SYSTEM_PROMPT,
-      onToken,
-      onSentence,
-      onFirstToken: (model) => {
-        logger.markLLMFirstToken(model);
-        if (typeof onFirstToken === 'function') onFirstToken(model);
-      },
-      logger,
-    });
+  // Guaranteed SOS path: if emergency words detected, still allow SOS alert if call_llm fails or returns canned
+  const result = await call_llm(promptWithContext, {
+    systemInstruction: SYSTEM_PROMPT,
+    onToken,
+    onSentence,
+    onFirstToken: (model) => {
+      logger.markLLMFirstToken(model);
+      if (typeof onFirstToken === 'function') onFirstToken(model);
+    },
+    logger,
+  });
 
+  if (result.model === 'canned' && EMERGENCY_WORDS.test(cleanText)) {
+    const emergencyReply =
+      'Emergency alert activated. Calling your daughter Sarah and alerting your caregiver right now. Please sit down and stay calm.';
+    if (typeof onSentence === 'function') onSentence(emergencyReply);
     return {
-      intent: 'assistant_response',
-      reply: result.text,
-      model: result.model,
-      actionTrigger: { type: 'NONE', targetId: null },
-      fastPath: false,
-      retrievedFactIds: factIds,
-      retrievalMs: retrievalDurationMs,
-      logger,
-    };
-  } catch (err) {
-    const { status, message, errorBody } = extractErrorDetails(err);
-    console.error(
-      `[geminiService] All LLM stream models failed or timed out - Status: ${status}, Message: ${message}`,
-      '\nError Body:',
-      errorBody,
-      err
-    );
-
-    // Guaranteed SOS path: even if both models fail, trigger emergency alert & safe reply
-    if (EMERGENCY_WORDS.test(cleanText)) {
-      const emergencyReply =
-        'Emergency alert activated. Calling your daughter Sarah and alerting your caregiver right now. Please sit down and stay calm.';
-      if (typeof onSentence === 'function') onSentence(emergencyReply);
-      return {
-        intent: 'emergency',
-        reply: emergencyReply,
-        actionTrigger: { type: 'TRIGGER_ALERT', targetId: 'sos' },
-        error: err,
-        logger,
-      };
-    }
-
-    const fallbackReply = REPLIES.unknown.en;
-    if (typeof onSentence === 'function') onSentence(fallbackReply);
-    return {
-      intent: 'unknown',
-      reply: fallbackReply,
-      actionTrigger: { type: 'NONE', targetId: null },
-      fastPath: false,
-      retrievedFactIds: factIds,
-      retrievalMs: retrievalDurationMs,
-      error: err,
+      intent: 'emergency',
+      reply: emergencyReply,
+      actionTrigger: { type: 'TRIGGER_ALERT', targetId: 'sos' },
       logger,
     };
   }
+
+  return {
+    intent: result.model === 'canned' ? 'unknown' : 'assistant_response',
+    reply: result.text,
+    model: result.model,
+    fallbackTriggered: Boolean(result.fallbackTriggered),
+    errorType: result.errorType || null,
+    statusCode: result.statusCode || 200,
+    failureReason: result.failureReason || null,
+    ttftMs: result.ttftMs ?? null,
+    totalLatencyMs: result.totalLatencyMs ?? null,
+    finishReason: result.finishReason || 'STOP',
+    actionTrigger: { type: 'NONE', targetId: null },
+    fastPath: false,
+    retrievedFactIds: factIds,
+    retrievalMs: retrievalDurationMs,
+    logger,
+  };
 }
 
 /**
- * Backward compatibility adapter for legacy callWithFallback callers.
+ * Backward compatibility adapter for legacy callWithFallback callers (routes through call_llm).
  */
 export async function callWithFallback(params) {
-  const client = getPersistentClient();
-  if (!client) {
-    throw new Error('[geminiService] Cannot initialize client: API key missing.');
-  }
-
-  let lastError;
-  for (const m of MODELS) {
-    try {
-      return await client.models.generateContent({ ...params, model: m });
-    } catch (err) {
-      lastError = err;
-      const { status, message, errorBody } = extractErrorDetails(err);
-      console.error(
-        `[geminiService] Model ${m} failed - Status: ${status}, Message: ${message}`,
-        '\nError Body:',
-        errorBody,
-        err
-      );
-      const numStatus = Number(status);
-      if (numStatus === 429 || numStatus === 500 || numStatus === 503 || numStatus === 404) {
-        continue;
-      }
-      throw err;
-    }
-  }
-  throw lastError;
+  const prompt = params?.contents ?? params?.prompt ?? '';
+  const systemInstruction = params?.config?.systemInstruction || SYSTEM_PROMPT;
+  const res = await call_llm(prompt, { systemInstruction });
+  return { text: res.text, model: res.model, fallbackTriggered: res.fallbackTriggered };
 }
 
 /**
@@ -1139,6 +1318,7 @@ export const SAFE_FALLBACK_RESPONSE = Object.freeze({
 export default {
   handleVoice,
   processVoiceCommand,
+  call_llm,
   callWithFallback,
   streamWithHedgeAndTimeout,
   checkStartupHealth,
@@ -1150,6 +1330,7 @@ export default {
   MODELS,
   PRIMARY_MODEL,
   FALLBACK_MODEL,
+  CANNED_FALLBACK_REPLY,
   INTENTS,
   REPLIES,
   EMERGENCY_WORDS,
