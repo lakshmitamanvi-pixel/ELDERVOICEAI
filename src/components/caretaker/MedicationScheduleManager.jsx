@@ -117,7 +117,7 @@ export const MedicationScheduleManager = ({
       {isAdding && (
         <form
           onSubmit={handleSubmit}
-          className="bg-warmWhite-paper border-3 border-elderBlue-300 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6"
+          className="bg-warmWhite-paper border-3 border-elderBlue-300 rounded-3xl p-4 sm:p-8 shadow-xl space-y-6"
         >
           <div className="flex items-center justify-between pb-4 border-b-2 border-elderBlue-200">
             <h4 className="text-2xl font-bold text-elderBlue-950">
@@ -218,18 +218,18 @@ export const MedicationScheduleManager = ({
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-4 pt-4 border-t-2 border-elderBlue-200">
+          <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-end gap-3 sm:gap-4 pt-4 border-t-2 border-elderBlue-200">
             <button
               type="button"
               onClick={resetForm}
-              className="min-h-[60px] px-6 py-3 rounded-2xl border-2 border-elderBlue-300 text-elderBlue-900 font-bold text-xl hover:bg-elderBlue-100"
+              className="w-full sm:w-auto min-h-[56px] px-6 py-3 rounded-2xl border-2 border-elderBlue-300 text-elderBlue-900 font-bold text-xl hover:bg-elderBlue-100"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="min-h-[60px] px-8 py-3 rounded-2xl bg-emeraldSuccess-700 hover:bg-emeraldSuccess-800 text-white font-bold text-xl flex items-center gap-2 shadow-md focus:ring-4 focus:ring-emeraldSuccess-300"
+              className="w-full sm:w-auto min-h-[56px] px-8 py-3 rounded-2xl bg-emeraldSuccess-700 hover:bg-emeraldSuccess-800 text-white font-bold text-xl flex items-center justify-center gap-2 shadow-md focus:ring-4 focus:ring-emeraldSuccess-300"
             >
               {isSubmitting ? (
                 <>
@@ -252,34 +252,34 @@ export const MedicationScheduleManager = ({
         {medications.map((med) => (
           <div
             key={med.id}
-            className="bg-white border-3 border-elderBlue-100 rounded-3xl p-6 shadow-sm flex flex-col justify-between hover:border-elderBlue-300 transition-colors"
+            className="bg-white border-3 border-elderBlue-100 rounded-3xl p-4 sm:p-6 shadow-sm flex flex-col justify-between hover:border-elderBlue-300 transition-colors min-w-0"
           >
-            <div>
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-elderBlue-100 text-elderBlue-900 rounded-2xl">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div className="p-3 bg-elderBlue-100 text-elderBlue-900 rounded-2xl flex-shrink-0">
                     <Pill className="w-7 h-7 stroke-[2.5]" aria-hidden="true" />
                   </div>
-                  <div>
-                    <h4 className="text-2xl font-bold text-elderBlue-950">{med.name}</h4>
-                    <span className="text-xl font-bold text-elderBlue-700">{med.dosage}</span>
+                  <div className="min-w-0 flex-1">
+                    <h4 className="text-xl sm:text-2xl font-bold text-elderBlue-950 break-words">{med.name}</h4>
+                    <span className="text-lg sm:text-xl font-bold text-elderBlue-700 break-words">{med.dosage}</span>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1.5 px-3 py-1 bg-elderBlue-50 border border-elderBlue-200 rounded-xl text-lg font-bold text-elderBlue-900">
+                <div className="flex items-center gap-1.5 px-3 py-1 bg-elderBlue-50 border border-elderBlue-200 rounded-xl text-base sm:text-lg font-bold text-elderBlue-900 flex-shrink-0">
                   <Clock className="w-5 h-5 text-elderBlue-700" aria-hidden="true" />
                   <span>{med.scheduleTime}</span>
                 </div>
               </div>
 
               {med.instructions && (
-                <p className="mt-3 text-lg text-elderBlue-800 font-medium bg-warmWhite-paper p-3 rounded-xl border border-elderBlue-100">
+                <p className="mt-3 text-base sm:text-lg text-elderBlue-800 font-medium bg-warmWhite-paper p-3 rounded-xl border border-elderBlue-100 break-words">
                   {med.instructions}
                 </p>
               )}
             </div>
 
-            <div className="flex items-center justify-between gap-3 mt-6 pt-4 border-t-2 border-elderBlue-50">
+            <div className="flex flex-wrap items-center justify-between gap-3 mt-6 pt-4 border-t-2 border-elderBlue-50">
               <span className="text-base font-bold text-elderBlue-600 uppercase tracking-wide">
                 Status: <strong className="text-elderBlue-950">{med.status}</strong>
               </span>

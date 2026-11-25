@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { User, Users, Heart, Shield, Activity, BellRing } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { User, Users, Heart, Shield, Mic } from 'lucide-react';
 import { SeniorVoiceAssistant, EmergencyAlertButton, MedicationReminderCard, MemoryPeopleSection } from './components/elderly/index.js';
 import { CaretakerDashboard } from './components/caretaker/index.js';
 import { formatSeniorDate, formatSeniorTime } from './utils/formatters.js';
@@ -13,6 +13,9 @@ export function App() {
   const [medications, setMedications] = useState([]);
   const [profile, setProfile] = useState(null);
   const [emergencyStatus, setEmergencyStatus] = useState(null);
+  const [isVoiceListening, setIsVoiceListening] = useState(false);
+  const [isInputFocused, setIsInputFocused] = useState(false);
+  const voiceAssistantRef = useRef(null);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -61,28 +64,28 @@ export function App() {
   };
 
   return (
-    <div className="min-h-screen bg-warmWhite flex flex-col">
-      <header className="bg-elderBlue-900 text-warmWhite border-b-4 border-elderBlue-950 py-5 px-4 sm:px-8 shadow-lg">
-        <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-elderBlue-800 rounded-2xl border-2 border-elderBlue-700">
-              <Heart className="w-9 h-9 text-emeraldSuccess-400 stroke-[2.5]" aria-hidden="true" />
+    <div className="min-h-dvh-screen bg-warmWhite flex flex-col w-full max-w-full">
+      <header className="bg-elderBlue-900 text-warmWhite border-b-4 border-elderBlue-950 safe-area-top py-4 sm:py-5 px-3 sm:px-8 shadow-lg">
+        <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3 sm:gap-4 min-w-0">
+          <div className="flex items-center gap-3 min-w-0 w-full md:w-auto">
+            <div className="p-2.5 sm:p-3 bg-elderBlue-800 rounded-2xl border-2 border-elderBlue-700 flex-shrink-0">
+              <Heart className="w-8 h-8 sm:w-9 sm:h-9 text-emeraldSuccess-400 stroke-[2.5]" aria-hidden="true" />
             </div>
-            <div>
-              <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight leading-tight">
                 ElderVoice <span className="text-emeraldSuccess-400">AI</span>
               </h1>
-              <p className="text-lg text-elderBlue-200 font-semibold">
+              <p className="text-base sm:text-lg text-elderBlue-200 font-semibold leading-snug">
                 Voice Companion & Senior Care Ecosystem
               </p>
             </div>
           </div>
 
-          <div className="text-center md:text-right bg-elderBlue-950/70 px-6 py-3 rounded-2xl border border-elderBlue-700">
-            <p className="text-2xl font-bold tracking-wide text-warmWhite">
+          <div className="w-full md:w-auto text-center md:text-right bg-elderBlue-950/70 px-4 sm:px-6 py-2.5 sm:py-3 rounded-2xl border border-elderBlue-700 flex-shrink-0">
+            <p className="text-xl sm:text-2xl font-bold tracking-wide text-warmWhite">
               {formatSeniorTime(currentTime)}
             </p>
-            <p className="text-lg text-elderBlue-200 font-medium">
+            <p className="text-base sm:text-lg text-elderBlue-200 font-medium">
               {formatSeniorDate(currentTime)}
             </p>
           </div>
@@ -90,60 +93,61 @@ export function App() {
       </header>
 
       {emergencyStatus && (
-        <div className="bg-crimsonAlert-700 text-white font-bold text-xl py-3 px-6 text-center shadow-lg animate-pulse">
+        <div className="bg-crimsonAlert-700 text-white font-bold text-lg sm:text-xl py-3 px-4 sm:px-6 text-center shadow-lg animate-pulse">
           {emergencyStatus}
         </div>
       )}
 
-      <nav aria-label="Interface Mode" className="max-w-6xl w-full mx-auto px-4 sm:px-8 mt-6">
-        <div className="grid grid-cols-2 gap-4 bg-warmWhite-paper p-2 rounded-3xl border-3 border-elderBlue-200">
+      <nav aria-label="Interface Mode" className="max-w-6xl w-full mx-auto px-3 sm:px-8 mt-4 sm:mt-6">
+        <div className="grid grid-cols-2 gap-2 sm:gap-4 bg-warmWhite-paper p-1.5 sm:p-2 rounded-3xl border-3 border-elderBlue-200">
           <button
+            type="button"
             onClick={() => setActiveTab('senior')}
-            className={`min-h-[60px] px-6 py-3 rounded-2xl font-bold text-xl sm:text-2xl flex items-center justify-center gap-3 transition-all duration-200 focus:outline-none focus:ring-4 ${
+            className={`min-h-[56px] min-w-0 px-3 sm:px-6 py-2.5 sm:py-3 rounded-2xl font-bold text-base sm:text-xl flex items-center justify-center gap-2 sm:gap-3 transition-all duration-200 focus:outline-none focus:ring-4 ${
               activeTab === 'senior'
                 ? 'bg-elderBlue-800 text-warmWhite shadow-md focus:ring-elderBlue-400'
                 : 'text-elderBlue-900 hover:bg-elderBlue-100 focus:ring-elderBlue-300'
             }`}
           >
-            <User className="w-8 h-8 stroke-[2.5]" aria-hidden="true" />
-            <span>Senior View</span>
+            <User className="w-6 h-6 sm:w-7 sm:h-7 stroke-[2.5] flex-shrink-0" aria-hidden="true" />
+            <span className="leading-tight text-center">Senior View</span>
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveTab('caretaker')}
-            className={`min-h-[60px] px-6 py-3 rounded-2xl font-bold text-xl sm:text-2xl flex items-center justify-center gap-3 transition-all duration-200 focus:outline-none focus:ring-4 ${
+            className={`min-h-[56px] min-w-0 px-3 sm:px-6 py-2.5 sm:py-3 rounded-2xl font-bold text-base sm:text-xl flex items-center justify-center gap-2 sm:gap-3 transition-all duration-200 focus:outline-none focus:ring-4 ${
               activeTab === 'caretaker'
                 ? 'bg-elderBlue-800 text-warmWhite shadow-md focus:ring-elderBlue-400'
                 : 'text-elderBlue-900 hover:bg-elderBlue-100 focus:ring-elderBlue-300'
             }`}
           >
-            <Users className="w-8 h-8 stroke-[2.5]" aria-hidden="true" />
-            <span>Family & Caretaker</span>
+            <Users className="w-6 h-6 sm:w-7 sm:h-7 stroke-[2.5] flex-shrink-0" aria-hidden="true" />
+            <span className="leading-tight text-center">Caregiver View</span>
           </button>
         </div>
       </nav>
 
-      <main className="max-w-6xl w-full mx-auto px-4 sm:px-8 py-6 flex-1">
+      <main className="max-w-6xl w-full mx-auto px-3 sm:px-8 py-5 sm:py-6 flex-1 min-w-0">
         {activeTab === 'senior' ? (
-          <div className="space-y-8">
-            <section aria-labelledby="emergency-heading">
-              <h2 id="emergency-heading" className="sr-only">Emergency Assistance</h2>
-              <EmergencyAlertButton onTriggerAlert={handleEmergencyAlert} />
-            </section>
-
+          <div className="space-y-6 sm:space-y-8">
             <section aria-labelledby="assistant-heading">
               <h2 id="assistant-heading" className="text-2xl font-bold text-elderBlue-950 mb-3">
                 Voice Assistant & Companion
               </h2>
-              <SeniorVoiceAssistant />
+              <SeniorVoiceAssistant
+                ref={voiceAssistantRef}
+                onListeningChange={setIsVoiceListening}
+                onInputFocusChange={setIsInputFocused}
+              />
             </section>
 
             <section aria-labelledby="medications-heading" className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 id="medications-heading" className="text-2xl font-bold text-elderBlue-950">
                   Daily Medication Schedule
                 </h2>
-                <span className="text-lg font-bold text-elderBlue-700 bg-elderBlue-100 px-4 py-1.5 rounded-full">
+                <span className="text-base sm:text-lg font-bold text-elderBlue-700 bg-elderBlue-100 px-4 py-1.5 rounded-full">
                   Real-time Schedule
                 </span>
               </div>
@@ -176,17 +180,47 @@ export function App() {
         )}
       </main>
 
-      <footer className="bg-elderBlue-950 text-warmWhite py-6 px-4 border-t-4 border-elderBlue-900 mt-12">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left">
+      <footer className="bg-elderBlue-950 text-warmWhite py-5 px-4 border-t-4 border-elderBlue-900 mt-8 safe-area-bottom">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
           <div className="flex items-center gap-2">
-            <Shield className="w-6 h-6 text-emeraldSuccess-400 stroke-[2.5]" aria-hidden="true" />
-            <span className="text-lg font-bold">ElderVoice AI Production Core</span>
+            <Shield className="w-6 h-6 text-emeraldSuccess-400 stroke-[2.5] flex-shrink-0" aria-hidden="true" />
+            <span className="text-base sm:text-lg font-bold">ElderVoice AI Production Core</span>
           </div>
           <p className="text-base text-elderBlue-200">
             Enforcing WCAG AAA Color Contrast & Accessible Touch Target Standards.
           </p>
         </div>
       </footer>
+
+      {activeTab === 'senior' && !isInputFocused && (
+        <div
+          role="region"
+          aria-label="Quick Thumb Actions"
+          className="sticky bottom-0 z-30 w-full bg-warmWhite/95 backdrop-blur-md border-t-3 border-elderBlue-200 safe-area-bottom pt-2.5 shadow-[0_-6px_20px_rgba(11,42,74,0.12)]"
+        >
+          <div className="max-w-6xl mx-auto grid grid-cols-2 gap-2.5 sm:gap-4">
+            <button
+              type="button"
+              onClick={() => voiceAssistantRef.current?.toggleListening()}
+              aria-label={isVoiceListening ? 'Stop listening' : 'Tap to speak with assistant'}
+              className={`min-h-[60px] w-full min-w-0 px-3 sm:px-5 py-3 rounded-2xl font-bold text-lg sm:text-xl flex items-center justify-center gap-2 shadow-lg transition-all focus:outline-none focus:ring-4 ${
+                isVoiceListening
+                  ? 'bg-emeraldSuccess-700 text-white animate-pulse focus:ring-emeraldSuccess-300 ring-4 ring-emeraldSuccess-400'
+                  : 'bg-elderBlue-900 hover:bg-elderBlue-950 text-warmWhite focus:ring-elderBlue-400'
+              }`}
+            >
+              <Mic className="w-6 h-6 sm:w-7 sm:h-7 stroke-[2.5] flex-shrink-0" aria-hidden="true" />
+              <span className="leading-tight text-center">
+                {isVoiceListening ? 'Listening...' : 'Tap to Speak'}
+              </span>
+            </button>
+
+            <div id="emergency-heading" className="min-w-0">
+              <EmergencyAlertButton compact onTriggerAlert={handleEmergencyAlert} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

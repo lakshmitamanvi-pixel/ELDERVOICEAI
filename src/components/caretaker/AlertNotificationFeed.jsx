@@ -58,10 +58,10 @@ export const AlertNotificationFeed = ({
                   )}
                 </div>
 
-                <div className="flex-1">
-                  <div className="flex items-center justify-between">
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <h4
-                      className={`text-xl font-bold ${
+                      className={`text-lg sm:text-xl font-bold break-words ${
                         isAlert
                           ? 'text-crimsonAlert-900'
                           : isSuccess
@@ -71,7 +71,7 @@ export const AlertNotificationFeed = ({
                     >
                       {item.title}
                     </h4>
-                    <span className="text-base font-semibold text-elderBlue-600">
+                    <span className="text-sm sm:text-base font-semibold text-elderBlue-600 flex-shrink-0">
                       {formatRelativeTime(item.timestamp)}
                     </span>
                   </div>

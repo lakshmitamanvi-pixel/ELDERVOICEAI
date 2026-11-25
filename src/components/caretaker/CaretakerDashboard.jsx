@@ -166,14 +166,14 @@ export const CaretakerDashboard = ({ onProfileUpdated }) => {
     <PinAuthWrapper>
       {({ onSignOut }) => (
         <div className="space-y-6">
-          <div className="bg-white border-3 border-elderBlue-100 rounded-3xl p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-3">
-                <span className="text-base font-bold text-elderBlue-600 uppercase tracking-wider">
+          <div className="bg-white border-3 border-elderBlue-100 rounded-3xl p-4 sm:p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 min-w-0">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                <span className="text-sm sm:text-base font-bold text-elderBlue-600 uppercase tracking-wider">
                   Care Management Console
                 </span>
                 <span
-                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-base font-bold ${
+                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm sm:text-base font-bold ${
                     isLiveFirestore
                       ? 'bg-emeraldSuccess-100 text-emeraldSuccess-900 border border-emeraldSuccess-400'
                       : 'bg-elderBlue-100 text-elderBlue-900 border border-elderBlue-300'
@@ -181,24 +181,24 @@ export const CaretakerDashboard = ({ onProfileUpdated }) => {
                 >
                   {isLiveFirestore ? (
                     <>
-                      <Wifi className="w-4 h-4 stroke-[2.5] text-emeraldSuccess-700" aria-hidden="true" />
+                      <Wifi className="w-4 h-4 stroke-[2.5] text-emeraldSuccess-700 flex-shrink-0" aria-hidden="true" />
                       <span>Firestore Sync Live</span>
                     </>
                   ) : (
                     <>
-                      <WifiOff className="w-4 h-4 stroke-[2.5] text-elderBlue-700" aria-hidden="true" />
+                      <WifiOff className="w-4 h-4 stroke-[2.5] text-elderBlue-700 flex-shrink-0" aria-hidden="true" />
                       <span>Local Persistence Mode</span>
                     </>
                   )}
                 </span>
               </div>
-              <h2 className="text-3xl font-extrabold text-elderBlue-950 mt-1">
+              <h2 className="text-2xl sm:text-3xl font-extrabold text-elderBlue-950 mt-1 break-words">
                 {profile?.fullName || 'Senior User'}’s Caretaker Dashboard
               </h2>
             </div>
 
-            <div className="flex items-center gap-3">
-              <span className="text-lg font-bold text-elderBlue-800 bg-warmWhite-paper px-4 py-2 rounded-xl border border-elderBlue-200">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="text-base sm:text-lg font-bold text-elderBlue-800 bg-warmWhite-paper px-4 py-2 rounded-xl border border-elderBlue-200 break-words">
                 Primary: {profile?.emergencyContacts?.[0]?.name || 'Sarah Vance'}
               </span>
             </div>
@@ -231,53 +231,57 @@ export const CaretakerDashboard = ({ onProfileUpdated }) => {
 
           <nav
             aria-label="Caretaker Sections"
-            className="grid grid-cols-2 lg:grid-cols-4 gap-3 bg-warmWhite-paper p-2 rounded-3xl border-3 border-elderBlue-200"
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 bg-warmWhite-paper p-2 rounded-3xl border-3 border-elderBlue-200"
           >
             <button
+              type="button"
               onClick={() => setActiveTab('adherence')}
-              className={`min-h-[60px] px-4 py-3 rounded-2xl font-bold text-lg sm:text-xl flex items-center justify-center gap-2.5 transition-all focus:outline-none focus:ring-4 ${
+              className={`min-h-[56px] min-w-0 px-3 sm:px-4 py-2.5 sm:py-3 rounded-2xl font-bold text-base sm:text-xl flex items-center justify-center gap-2 transition-all focus:outline-none focus:ring-4 ${
                 activeTab === 'adherence'
                   ? 'bg-elderBlue-800 text-warmWhite shadow-md focus:ring-elderBlue-400'
                   : 'text-elderBlue-900 hover:bg-elderBlue-100 focus:ring-elderBlue-300'
               }`}
             >
-              <Activity className="w-6 h-6 stroke-[2.5]" aria-hidden="true" />
+              <Activity className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.5] flex-shrink-0" aria-hidden="true" />
               <span>Live Adherence</span>
             </button>
 
             <button
+              type="button"
               onClick={() => setActiveTab('medications')}
-              className={`min-h-[60px] px-4 py-3 rounded-2xl font-bold text-lg sm:text-xl flex items-center justify-center gap-2.5 transition-all focus:outline-none focus:ring-4 ${
+              className={`min-h-[56px] min-w-0 px-3 sm:px-4 py-2.5 sm:py-3 rounded-2xl font-bold text-base sm:text-xl flex items-center justify-center gap-2 transition-all focus:outline-none focus:ring-4 ${
                 activeTab === 'medications'
                   ? 'bg-elderBlue-800 text-warmWhite shadow-md focus:ring-elderBlue-400'
                   : 'text-elderBlue-900 hover:bg-elderBlue-100 focus:ring-elderBlue-300'
               }`}
             >
-              <Pill className="w-6 h-6 stroke-[2.5]" aria-hidden="true" />
+              <Pill className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.5] flex-shrink-0" aria-hidden="true" />
               <span>Medications</span>
             </button>
 
             <button
+              type="button"
               onClick={() => setActiveTab('appointments')}
-              className={`min-h-[60px] px-4 py-3 rounded-2xl font-bold text-lg sm:text-xl flex items-center justify-center gap-2.5 transition-all focus:outline-none focus:ring-4 ${
+              className={`min-h-[56px] min-w-0 px-3 sm:px-4 py-2.5 sm:py-3 rounded-2xl font-bold text-base sm:text-xl flex items-center justify-center gap-2 transition-all focus:outline-none focus:ring-4 ${
                 activeTab === 'appointments'
                   ? 'bg-elderBlue-800 text-warmWhite shadow-md focus:ring-elderBlue-400'
                   : 'text-elderBlue-900 hover:bg-elderBlue-100 focus:ring-elderBlue-300'
               }`}
             >
-              <Calendar className="w-6 h-6 stroke-[2.5]" aria-hidden="true" />
+              <Calendar className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.5] flex-shrink-0" aria-hidden="true" />
               <span>Appointments</span>
             </button>
 
             <button
+              type="button"
               onClick={() => setActiveTab('vault')}
-              className={`min-h-[60px] px-4 py-3 rounded-2xl font-bold text-lg sm:text-xl flex items-center justify-center gap-2.5 transition-all focus:outline-none focus:ring-4 ${
+              className={`min-h-[56px] min-w-0 px-3 sm:px-4 py-2.5 sm:py-3 rounded-2xl font-bold text-base sm:text-xl flex items-center justify-center gap-2 transition-all focus:outline-none focus:ring-4 ${
                 activeTab === 'vault'
                   ? 'bg-elderBlue-800 text-warmWhite shadow-md focus:ring-elderBlue-400'
                   : 'text-elderBlue-900 hover:bg-elderBlue-100 focus:ring-elderBlue-300'
               }`}
             >
-              <Brain className="w-6 h-6 stroke-[2.5]" aria-hidden="true" />
+              <Brain className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.5] flex-shrink-0" aria-hidden="true" />
               <span>Manage Memories</span>
             </button>
           </nav>

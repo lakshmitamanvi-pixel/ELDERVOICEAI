@@ -146,7 +146,7 @@ export const AppointmentManager = ({
       {isAdding && (
         <form
           onSubmit={handleSubmit}
-          className="bg-warmWhite-paper border-3 border-elderBlue-300 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6"
+          className="bg-warmWhite-paper border-3 border-elderBlue-300 rounded-3xl p-4 sm:p-8 shadow-xl space-y-6"
         >
           <div className="flex items-center justify-between pb-4 border-b-2 border-elderBlue-200">
             <h4 className="text-2xl font-bold text-elderBlue-950">
@@ -261,18 +261,18 @@ export const AppointmentManager = ({
             />
           </div>
 
-          <div className="flex items-center justify-end gap-4 pt-4 border-t-2 border-elderBlue-200">
+          <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-end gap-3 sm:gap-4 pt-4 border-t-2 border-elderBlue-200">
             <button
               type="button"
               onClick={resetForm}
-              className="min-h-[60px] px-6 py-3 rounded-2xl border-2 border-elderBlue-300 text-elderBlue-900 font-bold text-xl hover:bg-elderBlue-100"
+              className="w-full sm:w-auto min-h-[56px] px-6 py-3 rounded-2xl border-2 border-elderBlue-300 text-elderBlue-900 font-bold text-xl hover:bg-elderBlue-100"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="min-h-[60px] px-8 py-3 rounded-2xl bg-emeraldSuccess-700 hover:bg-emeraldSuccess-800 text-white font-bold text-xl flex items-center gap-2 shadow-md focus:ring-4 focus:ring-emeraldSuccess-300"
+              className="w-full sm:w-auto min-h-[56px] px-8 py-3 rounded-2xl bg-emeraldSuccess-700 hover:bg-emeraldSuccess-800 text-white font-bold text-xl flex items-center justify-center gap-2 shadow-md focus:ring-4 focus:ring-emeraldSuccess-300"
             >
               {isSubmitting ? (
                 <>
@@ -299,16 +299,16 @@ export const AppointmentManager = ({
           return (
             <div
               key={apt.id}
-              className="bg-white border-3 border-elderBlue-100 rounded-3xl p-6 shadow-sm hover:border-elderBlue-300 transition-colors"
+              className="bg-white border-3 border-elderBlue-100 rounded-3xl p-4 sm:p-6 shadow-sm hover:border-elderBlue-300 transition-colors min-w-0"
             >
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div className="flex items-start gap-4">
-                  <div className="p-4 bg-elderBlue-100 text-elderBlue-900 rounded-2xl flex-shrink-0">
-                    <Stethoscope className="w-8 h-8 stroke-[2.5]" aria-hidden="true" />
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 min-w-0">
+                <div className="flex items-start gap-3 sm:gap-4 min-w-0">
+                  <div className="p-3 sm:p-4 bg-elderBlue-100 text-elderBlue-900 rounded-2xl flex-shrink-0">
+                    <Stethoscope className="w-7 h-7 sm:w-8 sm:h-8 stroke-[2.5]" aria-hidden="true" />
                   </div>
-                  <div>
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <h4 className="text-2xl font-bold text-elderBlue-950">{apt.doctorName}</h4>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                      <h4 className="text-xl sm:text-2xl font-bold text-elderBlue-950 break-words">{apt.doctorName}</h4>
                       <span className="px-3 py-1 bg-elderBlue-50 border border-elderBlue-200 text-elderBlue-800 font-bold text-lg rounded-xl">
                         {apt.specialty}
                       </span>

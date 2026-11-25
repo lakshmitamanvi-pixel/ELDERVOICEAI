@@ -266,40 +266,43 @@ export const MemoryVaultManager = ({ profile = {}, onSaveProfile }) => {
       )}
 
       {/* Sub-Section Navigation */}
-      <div className="flex gap-2 p-1.5 bg-warmWhite-paper border-2 border-elderBlue-200 rounded-2xl">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 p-1.5 bg-warmWhite-paper border-2 border-elderBlue-200 rounded-2xl">
         <button
+          type="button"
           onClick={() => setActiveSection('vault')}
-          className={`flex-1 min-h-[48px] px-4 py-2 rounded-xl font-bold text-lg flex items-center justify-center gap-2 transition-colors ${
+          className={`min-h-[48px] min-w-0 px-4 py-2 rounded-xl font-bold text-lg flex items-center justify-center gap-2 transition-colors ${
             activeSection === 'vault'
               ? 'bg-elderBlue-900 text-warmWhite shadow-sm'
               : 'text-elderBlue-900 hover:bg-elderBlue-100'
           }`}
         >
-          <Brain className="w-6 h-6" aria-hidden="true" />
+          <Brain className="w-6 h-6 flex-shrink-0" aria-hidden="true" />
           <span>Manage Memories</span>
         </button>
 
         <button
+          type="button"
           onClick={() => setActiveSection('medical')}
-          className={`flex-1 min-h-[48px] px-4 py-2 rounded-xl font-bold text-lg flex items-center justify-center gap-2 transition-colors ${
+          className={`min-h-[48px] min-w-0 px-4 py-2 rounded-xl font-bold text-lg flex items-center justify-center gap-2 transition-colors ${
             activeSection === 'medical'
               ? 'bg-elderBlue-900 text-warmWhite shadow-sm'
               : 'text-elderBlue-900 hover:bg-elderBlue-100'
           }`}
         >
-          <ShieldCheck className="w-6 h-6" aria-hidden="true" />
+          <ShieldCheck className="w-6 h-6 flex-shrink-0" aria-hidden="true" />
           <span>Medical Profile</span>
         </button>
 
         <button
+          type="button"
           onClick={() => setActiveSection('contacts')}
-          className={`flex-1 min-h-[48px] px-4 py-2 rounded-xl font-bold text-lg flex items-center justify-center gap-2 transition-colors ${
+          className={`min-h-[48px] min-w-0 px-4 py-2 rounded-xl font-bold text-lg flex items-center justify-center gap-2 transition-colors ${
             activeSection === 'contacts'
               ? 'bg-elderBlue-900 text-warmWhite shadow-sm'
               : 'text-elderBlue-900 hover:bg-elderBlue-100'
           }`}
         >
-          <PhoneCall className="w-6 h-6" aria-hidden="true" />
+          <PhoneCall className="w-6 h-6 flex-shrink-0" aria-hidden="true" />
           <span>Emergency Contacts</span>
         </button>
       </div>
@@ -542,7 +545,7 @@ export const MemoryVaultManager = ({ profile = {}, onSaveProfile }) => {
 
       {/* SECTION 2: MEDICAL PROFILE */}
       {activeSection === 'medical' && (
-        <div className="bg-white border-3 border-elderBlue-100 rounded-3xl p-6 sm:p-8 shadow-sm space-y-6">
+        <div className="bg-white border-3 border-elderBlue-100 rounded-3xl p-4 sm:p-8 shadow-sm space-y-6">
           <h4 className="text-2xl font-bold text-elderBlue-950 pb-2 border-b-2 border-elderBlue-100">
             Personal & Health Records
           </h4>
@@ -676,7 +679,7 @@ export const MemoryVaultManager = ({ profile = {}, onSaveProfile }) => {
 
       {/* SECTION 3: EMERGENCY CONTACTS */}
       {activeSection === 'contacts' && (
-        <div className="bg-white border-3 border-elderBlue-100 rounded-3xl p-6 shadow-sm space-y-6">
+        <div className="bg-white border-3 border-elderBlue-100 rounded-3xl p-4 sm:p-6 shadow-sm space-y-6">
           <div className="flex items-center gap-3 pb-4 border-b-2 border-elderBlue-100">
             <PhoneCall className="w-7 h-7 text-crimsonAlert-700 stroke-[2.5]" aria-hidden="true" />
             <div>

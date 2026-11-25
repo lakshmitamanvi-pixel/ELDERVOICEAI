@@ -105,18 +105,18 @@ export const AdherenceTracker = ({ medications = [], onUpdateStatus }) => {
       </div>
 
       {/* Live Medication Adherence Table / Feed */}
-      <div className="bg-white border-3 border-elderBlue-100 rounded-3xl p-6 shadow-md">
+      <div className="bg-white border-3 border-elderBlue-100 rounded-3xl p-4 sm:p-6 shadow-md min-w-0">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b-2 border-elderBlue-100">
-          <div>
-            <h3 className="text-2xl font-bold text-elderBlue-950">
+          <div className="min-w-0">
+            <h3 className="text-xl sm:text-2xl font-bold text-elderBlue-950">
               Live Medication Schedule & Verification
             </h3>
-            <p className="text-lg text-elderBlue-700 font-medium mt-0.5">
+            <p className="text-base sm:text-lg text-elderBlue-700 font-medium mt-0.5">
               Real-time Firestore synchronization of today’s doses and verification states.
             </p>
           </div>
-          <div className="flex items-center gap-2 text-elderBlue-800 text-lg font-bold bg-elderBlue-50 px-4 py-2 rounded-xl border border-elderBlue-200">
-            <Calendar className="w-5 h-5" aria-hidden="true" />
+          <div className="flex items-center gap-2 text-elderBlue-800 text-base sm:text-lg font-bold bg-elderBlue-50 px-4 py-2 rounded-xl border border-elderBlue-200 self-start sm:self-auto flex-shrink-0">
+            <Calendar className="w-5 h-5 flex-shrink-0" aria-hidden="true" />
             <span>Today's Log</span>
           </div>
         </div>
@@ -132,20 +132,20 @@ export const AdherenceTracker = ({ medications = [], onUpdateStatus }) => {
             {medications.map((med) => (
               <div
                 key={med.id}
-                className="py-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-warmWhite-paper/50 px-2 rounded-2xl transition-colors"
+                className="py-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-warmWhite-paper/50 px-1 sm:px-2 rounded-2xl transition-colors min-w-0"
               >
-                <div className="flex items-start gap-4">
-                  <div className="p-3 bg-elderBlue-100 text-elderBlue-900 rounded-2xl font-extrabold text-xl flex items-center justify-center min-w-[70px]">
+                <div className="flex items-start gap-3 sm:gap-4 min-w-0">
+                  <div className="p-2.5 sm:p-3 bg-elderBlue-100 text-elderBlue-900 rounded-2xl font-extrabold text-lg sm:text-xl flex items-center justify-center min-w-[64px] sm:min-w-[70px] flex-shrink-0">
                     {med.scheduleTime || '00:00'}
                   </div>
-                  <div>
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <h4 className="text-2xl font-bold text-elderBlue-950">{med.name}</h4>
-                      <span className="text-xl font-bold text-elderBlue-700">({med.dosage})</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                      <h4 className="text-xl sm:text-2xl font-bold text-elderBlue-950 break-words">{med.name}</h4>
+                      <span className="text-lg sm:text-xl font-bold text-elderBlue-700">({med.dosage})</span>
                       {getStatusBadge(med.status)}
                     </div>
                     {med.instructions && (
-                      <p className="text-lg text-elderBlue-800 font-medium mt-1">
+                      <p className="text-base sm:text-lg text-elderBlue-800 font-medium mt-1 break-words">
                         Instructions: {med.instructions}
                       </p>
                     )}

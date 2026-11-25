@@ -11,13 +11,13 @@ export const ElderlyStatusCard = ({
   const isHealthy = status === 'Normal';
 
   return (
-    <div className="bg-white border-3 border-elderBlue-100 rounded-3xl p-6 shadow-md">
-      <div className="flex items-center justify-between pb-4 border-b-2 border-elderBlue-50">
-        <div>
-          <span className="text-lg font-semibold text-elderBlue-600 uppercase tracking-wide">
+    <div className="bg-white border-3 border-elderBlue-100 rounded-3xl p-4 sm:p-6 shadow-md min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b-2 border-elderBlue-50">
+        <div className="min-w-0">
+          <span className="text-base sm:text-lg font-semibold text-elderBlue-600 uppercase tracking-wide">
             Senior Profile
           </span>
-          <h2 className="text-3xl font-extrabold text-elderBlue-950 mt-1">{seniorName}</h2>
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-elderBlue-950 mt-1 break-words">{seniorName}</h2>
         </div>
         <div
           className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold text-lg ${

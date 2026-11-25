@@ -102,17 +102,18 @@ export const PinAuthWrapper = ({ children, onLockDashboard }) => {
   if (isAuthenticated) {
     return (
       <div>
-        <div className="flex items-center justify-between bg-elderBlue-100 border-2 border-elderBlue-300 rounded-2xl px-5 py-3 mb-6">
-          <div className="flex items-center gap-3">
-            <ShieldCheck className="w-6 h-6 text-emeraldSuccess-700 stroke-[2.5]" aria-hidden="true" />
-            <span className="text-lg font-bold text-elderBlue-950">
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-elderBlue-100 border-2 border-elderBlue-300 rounded-2xl px-4 sm:px-5 py-3 mb-6 min-w-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <ShieldCheck className="w-6 h-6 text-emeraldSuccess-700 stroke-[2.5] flex-shrink-0" aria-hidden="true" />
+            <span className="text-base sm:text-lg font-bold text-elderBlue-950 break-words">
               Authenticated Caretaker Session Active
             </span>
           </div>
           <button
+            type="button"
             onClick={handleSignOut}
             aria-label="Lock Caretaker Dashboard"
-            className="min-h-[44px] px-4 py-2 bg-elderBlue-900 text-warmWhite hover:bg-elderBlue-950 font-bold text-base rounded-xl transition-colors focus:ring-4 focus:ring-elderBlue-400"
+            className="w-full sm:w-auto min-h-[48px] px-4 py-2 bg-elderBlue-900 text-warmWhite hover:bg-elderBlue-950 font-bold text-base rounded-xl transition-colors focus:ring-4 focus:ring-elderBlue-400"
           >
             Lock Dashboard
           </button>
@@ -123,7 +124,7 @@ export const PinAuthWrapper = ({ children, onLockDashboard }) => {
   }
 
   return (
-    <div className="max-w-md mx-auto my-8 p-6 sm:p-8 bg-warmWhite-paper border-3 border-elderBlue-300 rounded-3xl shadow-2xl">
+    <div className="max-w-md w-full mx-auto my-4 sm:my-8 p-4 sm:p-8 bg-warmWhite-paper border-3 border-elderBlue-300 rounded-3xl shadow-2xl">
       <div className="text-center">
         <div className="inline-flex p-4 bg-elderBlue-100 border-2 border-elderBlue-300 rounded-2xl text-elderBlue-900 mb-3">
           <Lock className="w-10 h-10 stroke-[2.5]" aria-hidden="true" />
@@ -144,7 +145,7 @@ export const PinAuthWrapper = ({ children, onLockDashboard }) => {
 
       {/* 4-Digit Display Slots */}
       <div
-        className={`flex justify-center items-center gap-4 my-8 transition-transform ${
+        className={`flex justify-center items-center gap-2.5 sm:gap-4 my-6 sm:my-8 transition-transform ${
           shake ? 'translate-x-2' : ''
         }`}
         aria-live="polite"
@@ -155,7 +156,7 @@ export const PinAuthWrapper = ({ children, onLockDashboard }) => {
           return (
             <div
               key={index}
-              className={`w-16 h-20 rounded-2xl border-3 flex items-center justify-center text-3xl font-extrabold shadow-sm transition-all ${
+              className={`w-14 h-16 sm:w-16 sm:h-20 rounded-2xl border-3 flex items-center justify-center text-2xl sm:text-3xl font-extrabold shadow-sm transition-all ${
                 isFilled
                   ? 'border-elderBlue-800 bg-elderBlue-50 text-elderBlue-950 scale-105'
                   : 'border-elderBlue-200 bg-white text-elderBlue-400'
@@ -168,7 +169,7 @@ export const PinAuthWrapper = ({ children, onLockDashboard }) => {
       </div>
 
       {/* Visibility Toggle & Error Notification */}
-      <div className="flex items-center justify-between min-h-[30px] mb-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 min-h-[30px] mb-4">
         <button
           type="button"
           onClick={() => setShowPin(!showPin)}
