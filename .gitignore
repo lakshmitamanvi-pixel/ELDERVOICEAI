@@ -26,6 +26,9 @@ build/
 .memory_embeddings_cache.json
 *.cache.json
 
+# Vercel
+.vercel
+
 # System & OS Files
 .DS_Store
 Thumbs.db
@@ -35,6 +38,8 @@ Thumbs.db
 *.pem
 *.crt
 *.pfx
+serviceAccount*.json
+*firebase-adminsdk*.json
 
 # Databases
 *.db
