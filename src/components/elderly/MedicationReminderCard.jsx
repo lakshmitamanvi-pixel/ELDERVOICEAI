@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Pill, Check, Clock } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Pill, Check, Clock, AlertTriangle } from 'lucide-react';
+import { predictMedicineRunOut } from '../../utils/medicinePrediction.js';
 
 export const MedicationReminderCard = ({
   medication = {
@@ -12,6 +13,12 @@ export const MedicationReminderCard = ({
   onToggleTaken,
 }) => {
   const [isTaken, setIsTaken] = useState(medication.taken || false);
+
+  useEffect(() => {
+    setIsTaken(Boolean(medication.taken));
+  }, [medication.taken]);
+
+  const prediction = predictMedicineRunOut(medication);
 
   const handleToggle = () => {
     const nextState = !isTaken;
@@ -29,9 +36,14 @@ export const MedicationReminderCard = ({
             <Pill className="w-7 h-7 sm:w-8 sm:h-8 stroke-[2.5]" aria-hidden="true" />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 text-elderBlue-700 text-lg font-semibold">
+            <div className="flex flex-wrap items-center gap-2 text-elderBlue-700 text-lg font-semibold">
               <Clock className="w-5 h-5 stroke-[2.5] flex-shrink-0" aria-hidden="true" />
               <span>{medication.time}</span>
+              {medication.schedule_type === 'as_needed' && (
+                <span className="text-sm font-bold px-2.5 py-0.5 rounded-full bg-elderBlue-100 text-elderBlue-800">
+                  As needed
+                </span>
+              )}
             </div>
             <h3 className="text-xl sm:text-2xl font-bold text-elderBlue-950 mt-1 break-words">
               {medication.name}
@@ -39,6 +51,12 @@ export const MedicationReminderCard = ({
             <p className="text-lg sm:text-xl text-elderBlue-800 font-medium mt-1 break-words">
               {medication.dosage}
             </p>
+            {prediction.canPredict && prediction.shouldAlert && (
+              <p className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm sm:text-base font-bold bg-amber-100 text-amber-950 border border-amber-300">
+                <AlertTriangle className="w-4 h-4 text-amber-700 flex-shrink-0" aria-hidden="true" />
+                <span>Low stock: {prediction.message}</span>
+              </p>
+            )}
           </div>
         </div>
 

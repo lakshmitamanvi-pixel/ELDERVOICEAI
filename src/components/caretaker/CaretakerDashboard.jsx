@@ -22,11 +22,14 @@ import {
   addMedication,
   updateMedication,
   deleteMedication,
+  logMedicationDoseStatus,
+  refillMedicationStock,
   subscribeToAppointments,
   addAppointment,
   updateAppointment,
   deleteAppointment,
 } from '../../services/caretakerService.js';
+import { buildRestockAlerts } from '../../utils/medicinePrediction.js';
 
 export const CaretakerDashboard = ({ onProfileUpdated }) => {
   const [activeTab, setActiveTab] = useState('adherence');
@@ -71,11 +74,26 @@ export const CaretakerDashboard = ({ onProfileUpdated }) => {
 
   const handleUpdateMedicationStatus = async (id, status) => {
     try {
-      await updateMedication(id, { status, updatedAt: new Date().toISOString() });
+      const targetMed = medications.find((m) => m.id === id);
+      if (targetMed) {
+        await logMedicationDoseStatus(targetMed, status);
+      } else {
+        await updateMedication(id, { status, updatedAt: new Date().toISOString() });
+      }
       showNotification(`Updated dose status to ${status}.`);
     } catch (err) {
       console.error('Failed to update dose status:', err);
       showNotification('Failed to update dose status.', 'error');
+    }
+  };
+
+  const handleRefillMedication = async (med, addedUnits) => {
+    try {
+      await refillMedicationStock(med, addedUnits);
+      showNotification(`Added ${addedUnits} ${med.unit || 'unit'}(s) to ${med.name} stock.`);
+    } catch (err) {
+      console.error('Failed to refill medication:', err);
+      showNotification(err.message || 'Error refilling medication.', 'error');
     }
   };
 
@@ -229,6 +247,56 @@ export const CaretakerDashboard = ({ onProfileUpdated }) => {
             </div>
           )}
 
+          {(() => {
+            const restockAlerts = buildRestockAlerts(medications);
+            if (restockAlerts.length === 0) return null;
+            return (
+              <div
+                role="region"
+                aria-label="Medicine Restock Reminders"
+                className="bg-amber-50 border-3 border-amber-300 rounded-3xl p-4 sm:p-5 shadow-sm space-y-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-lg sm:text-xl font-extrabold text-amber-950 flex items-center gap-2">
+                    <AlertCircle className="w-6 h-6 text-amber-700 stroke-[2.5] flex-shrink-0" aria-hidden="true" />
+                    <span>Restock Reminders ({restockAlerts.length})</span>
+                  </h3>
+                  <span className="text-sm font-bold text-amber-800">Asia/Kolkata</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {restockAlerts.map((alert) => {
+                    const med = medications.find((m) => m.id === alert.medicineId);
+                    const refillAmount = med?.pack_size || 10;
+                    return (
+                      <div
+                        key={alert.id}
+                        className={`p-3.5 rounded-2xl border-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                          alert.severity === 'critical'
+                            ? 'bg-crimsonAlert-50 border-crimsonAlert-300 text-crimsonAlert-950'
+                            : 'bg-white border-amber-300 text-elderBlue-950'
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <p className="font-bold text-base sm:text-lg">{alert.title}</p>
+                          <p className="text-sm sm:text-base font-medium opacity-90">{alert.message}</p>
+                        </div>
+                        {med && (
+                          <button
+                            type="button"
+                            onClick={() => handleRefillMedication(med, refillAmount)}
+                            className="min-h-[44px] px-4 py-2 rounded-xl bg-elderBlue-900 hover:bg-elderBlue-950 text-white font-bold text-sm sm:text-base flex-shrink-0"
+                          >
+                            + Refill {refillAmount}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
           <nav
             aria-label="Caretaker Sections"
             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 bg-warmWhite-paper p-2 rounded-3xl border-3 border-elderBlue-200"
@@ -311,6 +379,7 @@ export const CaretakerDashboard = ({ onProfileUpdated }) => {
                   onAddMedication={handleAddMedication}
                   onUpdateMedication={handleUpdateMedication}
                   onDeleteMedication={handleDeleteMedication}
+                  onRefillMedication={handleRefillMedication}
                 />
               )}
 

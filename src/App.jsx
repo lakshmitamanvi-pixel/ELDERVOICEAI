@@ -3,7 +3,7 @@ import { User, Users, Heart, Shield, Mic } from 'lucide-react';
 import { SeniorVoiceAssistant, EmergencyAlertButton, MedicationReminderCard, MemoryPeopleSection } from './components/elderly/index.js';
 import { CaretakerDashboard } from './components/caretaker/index.js';
 import { formatSeniorDate, formatSeniorTime } from './utils/formatters.js';
-import { subscribeToMedications, updateMedication, subscribeToProfile } from './services/caretakerService.js';
+import { subscribeToMedications, logMedicationDoseStatus, subscribeToProfile } from './services/caretakerService.js';
 import { sendEmergencyEmailAlert } from './services/email.js';
 import { checkStartupHealth } from './services/geminiService.js';
 
@@ -59,8 +59,11 @@ export function App() {
   };
 
   const handleToggleMedication = async (id, takenState) => {
+    const targetMed = medications.find((m) => m.id === id);
     const newStatus = takenState ? 'confirmed' : 'pending';
-    await updateMedication(id, { status: newStatus, updatedAt: new Date().toISOString() });
+    if (targetMed) {
+      await logMedicationDoseStatus(targetMed, newStatus);
+    }
   };
 
   return (
@@ -156,10 +159,16 @@ export function App() {
                   <MedicationReminderCard
                     key={med.id}
                     medication={{
+                      ...med,
                       id: med.id,
                       name: med.name,
                       dosage: med.dosage,
-                      time: med.scheduleTime,
+                      time:
+                        med.schedule_type === 'as_needed'
+                          ? 'As needed'
+                          : Array.isArray(med.times_of_day) && med.times_of_day.length > 0
+                          ? med.times_of_day.join(', ')
+                          : med.scheduleTime,
                       taken: med.status === 'confirmed',
                     }}
                     onToggleTaken={handleToggleMedication}
