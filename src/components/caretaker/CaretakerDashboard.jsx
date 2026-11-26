@@ -9,6 +9,7 @@ import {
   RefreshCw,
   AlertCircle,
   CheckCircle2,
+  ExternalLink,
 } from 'lucide-react';
 import PinAuthWrapper from './PinAuthWrapper.jsx';
 import AdherenceTracker from './AdherenceTracker.jsx';
@@ -296,6 +297,39 @@ export const CaretakerDashboard = ({ onProfileUpdated }) => {
               </div>
             );
           })()}
+
+          <section
+            aria-labelledby="restock-medicines-heading"
+            className="bg-white border-3 border-elderBlue-100 rounded-3xl p-4 sm:p-6 shadow-sm space-y-3 min-w-0"
+          >
+            <div>
+              <h3 id="restock-medicines-heading" className="text-lg sm:text-xl font-extrabold text-elderBlue-950">
+                Restock medicines
+              </h3>
+              <p className="text-sm sm:text-base text-elderBlue-700 font-medium mt-1">
+                Search the medicine name yourself. Check brand, strength &amp; pack before ordering.
+              </p>
+            </div>
+
+            <div className="flex flex-col min-[600px]:flex-row gap-3">
+              {[
+                { name: 'Apollo Pharmacy', url: 'https://www.apollopharmacy.in' },
+                { name: 'Tata 1mg', url: 'https://www.1mg.com' },
+                { name: 'PharmEasy', url: 'https://pharmeasy.in' },
+              ].map((pharmacy) => (
+                <a
+                  key={pharmacy.name}
+                  href={pharmacy.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full min-[600px]:flex-1 min-h-[48px] min-w-0 px-4 py-3 rounded-2xl bg-elderBlue-50 hover:bg-elderBlue-100 border-2 border-elderBlue-200 text-elderBlue-950 font-bold text-base flex items-center justify-center gap-2 transition-all focus:outline-none focus:ring-4 focus:ring-elderBlue-300"
+                >
+                  <span className="truncate">{pharmacy.name}</span>
+                  <ExternalLink className="w-4 h-4 text-elderBlue-700 stroke-[2.5] flex-shrink-0" aria-hidden="true" />
+                </a>
+              ))}
+            </div>
+          </section>
 
           <nav
             aria-label="Caretaker Sections"
