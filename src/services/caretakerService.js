@@ -10,6 +10,7 @@ import {
   orderBy,
 } from 'firebase/firestore';
 import { db } from './firebase.js';
+import { normalizeMedicine, validateMedicine } from '../utils/medicinePrediction.js';
 
 const INITIAL_PROFILE = {
   fullName: 'Eleanor Vance',
@@ -60,30 +61,57 @@ const INITIAL_PROFILE = {
 };
 
 const INITIAL_MEDICATIONS = [
-  {
+  normalizeMedicine({
     id: 'med-1',
     name: 'Lisinopril',
+    strength: '10mg',
     dosage: '10mg',
+    dose_per_intake: 1,
+    unit: 'tablet',
+    schedule_type: 'daily',
+    times_of_day: ['08:00'],
     scheduleTime: '08:00',
+    stock_count: 14,
+    lead_days: 3,
+    pack_size: 30,
+    active: true,
     status: 'confirmed',
     instructions: 'Take 1 tablet in morning with a full glass of water.',
-  },
-  {
+  }),
+  normalizeMedicine({
     id: 'med-2',
     name: 'Metformin',
+    strength: '500mg',
     dosage: '500mg',
+    dose_per_intake: 1,
+    unit: 'tablet',
+    schedule_type: 'daily',
+    times_of_day: ['13:00', '20:00'],
     scheduleTime: '13:00',
+    stock_count: 5,
+    lead_days: 3,
+    pack_size: 30,
+    active: true,
     status: 'pending',
-    instructions: 'Take with mid-day meal.',
-  },
-  {
+    instructions: 'Take with mid-day meal and dinner.',
+  }),
+  normalizeMedicine({
     id: 'med-3',
     name: 'Atorvastatin',
+    strength: '20mg',
     dosage: '20mg',
+    dose_per_intake: 0.5,
+    unit: 'tablet',
+    schedule_type: 'daily',
+    times_of_day: ['20:00'],
     scheduleTime: '20:00',
+    stock_count: 12,
+    lead_days: 3,
+    pack_size: 15,
+    active: true,
     status: 'pending',
-    instructions: 'Take at bedtime.',
-  },
+    instructions: 'Take half tablet at bedtime.',
+  }),
 ];
 
 const INITIAL_APPOINTMENTS = [
@@ -197,25 +225,25 @@ export const subscribeToMedications = (onUpdate, onError) => {
       medsQuery,
       (snapshot) => {
         if (!snapshot.empty) {
-          const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+          const list = snapshot.docs.map((d) => normalizeMedicine({ id: d.id, ...d.data() }));
           setLocalData(LOCAL_STORAGE_KEYS.medications, list);
           onUpdate(list, true);
         } else {
-          const local = getLocalData(LOCAL_STORAGE_KEYS.medications, INITIAL_MEDICATIONS);
+          const local = getLocalData(LOCAL_STORAGE_KEYS.medications, INITIAL_MEDICATIONS).map(normalizeMedicine);
           setLocalData(LOCAL_STORAGE_KEYS.medications, local);
           onUpdate(local, true);
         }
       },
       (error) => {
         console.warn('Firestore medications subscription fallback to local cache:', error.message);
-        const local = getLocalData(LOCAL_STORAGE_KEYS.medications, INITIAL_MEDICATIONS);
+        const local = getLocalData(LOCAL_STORAGE_KEYS.medications, INITIAL_MEDICATIONS).map(normalizeMedicine);
         onUpdate(local, false);
         if (onError) onError(error);
       }
     );
   } catch (error) {
     console.warn('Firestore init failed for medications, using local store:', error);
-    const local = getLocalData(LOCAL_STORAGE_KEYS.medications, INITIAL_MEDICATIONS);
+    const local = getLocalData(LOCAL_STORAGE_KEYS.medications, INITIAL_MEDICATIONS).map(normalizeMedicine);
     onUpdate(local, false);
   }
 
@@ -223,9 +251,18 @@ export const subscribeToMedications = (onUpdate, onError) => {
 };
 
 export const addMedication = async (medication) => {
+  const normalized = normalizeMedicine(medication);
+  const validation = validateMedicine(normalized);
+  if (!validation.valid) {
+    throw new Error(validation.errors[0]);
+  }
+
+  const nowIso = new Date().toISOString();
   const newMed = {
-    ...medication,
-    createdAt: new Date().toISOString(),
+    ...normalized,
+    stock_updated_at: normalized.stock_updated_at || nowIso,
+    createdAt: nowIso,
+    updatedAt: nowIso,
   };
 
   try {
@@ -248,17 +285,65 @@ export const addMedication = async (medication) => {
 
 export const updateMedication = async (id, updates) => {
   const current = getLocalData(LOCAL_STORAGE_KEYS.medications, INITIAL_MEDICATIONS);
-  const updated = current.map((item) => (item.id === id ? { ...item, ...updates } : item));
+  const existing = current.find((item) => item.id === id) || {};
+  const merged = normalizeMedicine({ ...existing, ...updates, id });
+  const validation = validateMedicine(merged);
+  if (!validation.valid) {
+    throw new Error(validation.errors[0]);
+  }
+
+  const nowIso = new Date().toISOString();
+  const payload = {
+    ...updates,
+    ...merged,
+    updatedAt: nowIso,
+  };
+  delete payload.id;
+
+  const updated = current.map((item) => (item.id === id ? { ...item, ...payload, id } : item));
   setLocalData(LOCAL_STORAGE_KEYS.medications, updated);
 
   try {
     const medDocRef = doc(db, 'medications', id);
-    await updateDoc(medDocRef, updates);
+    await updateDoc(medDocRef, payload);
     return { success: true, live: true };
   } catch (err) {
     console.warn('Firestore updateMedication fallback to local storage:', err);
     return { success: true, live: false };
   }
+};
+
+export const logMedicationDoseStatus = async (med, nextStatus) => {
+  const normalized = normalizeMedicine(med);
+  const nowIso = new Date().toISOString();
+  const updates = {
+    status: nextStatus,
+    updatedAt: nowIso,
+  };
+
+  if (nextStatus === 'confirmed' && normalized.status !== 'confirmed') {
+    updates.stock_count = Math.max(
+      0,
+      Number((normalized.stock_count - normalized.dose_per_intake).toFixed(4))
+    );
+    updates.stock_updated_at = nowIso;
+    updates.lastTakenAt = nowIso;
+  }
+
+  return updateMedication(normalized.id, updates);
+};
+
+export const refillMedicationStock = async (med, addedUnits) => {
+  const normalized = normalizeMedicine(med);
+  const units = Number(addedUnits);
+  if (!Number.isFinite(units) || units <= 0) {
+    throw new Error('Refill amount must be greater than 0.');
+  }
+  const nowIso = new Date().toISOString();
+  return updateMedication(normalized.id, {
+    stock_count: Number((normalized.stock_count + units).toFixed(4)),
+    stock_updated_at: nowIso,
+  });
 };
 
 export const deleteMedication = async (id) => {
