@@ -6,3 +6,4 @@ export * from './AppointmentManager.jsx';
 export * from './MemoryVaultManager.jsx';
 export * from './ElderlyStatusCard.jsx';
 export * from './AlertNotificationFeed.jsx';
+export * from './DailyDigestCard.jsx';

@@ -6,4 +6,5 @@ export * from './speech.js';
 export * from './speechService.js';
 export * from './email.js';
 export * from './loggingService.js';
+export * from './digestService.js';
 

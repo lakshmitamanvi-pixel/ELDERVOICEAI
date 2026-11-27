@@ -16,6 +16,7 @@ import AdherenceTracker from './AdherenceTracker.jsx';
 import MedicationScheduleManager from './MedicationScheduleManager.jsx';
 import AppointmentManager from './AppointmentManager.jsx';
 import MemoryVaultManager from './MemoryVaultManager.jsx';
+import DailyDigestCard from './DailyDigestCard.jsx';
 import {
   subscribeToProfile,
   saveProfileData,
@@ -31,12 +32,14 @@ import {
   deleteAppointment,
 } from '../../services/caretakerService.js';
 import { buildRestockAlerts } from '../../utils/medicinePrediction.js';
+import { subscribeToDigests, previewYesterdayDigest } from '../../services/digestService.js';
 
 export const CaretakerDashboard = ({ onProfileUpdated }) => {
   const [activeTab, setActiveTab] = useState('adherence');
   const [profile, setProfile] = useState(null);
   const [medications, setMedications] = useState([]);
   const [appointments, setAppointments] = useState([]);
+  const [digests, setDigests] = useState([]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isLiveFirestore, setIsLiveFirestore] = useState(false);
@@ -66,10 +69,15 @@ export const CaretakerDashboard = ({ onProfileUpdated }) => {
       if (isLive) setIsLiveFirestore(true);
     });
 
+    const unsubDigests = subscribeToDigests((data) => {
+      setDigests(data);
+    });
+
     return () => {
       unsubProfile();
       unsubMeds();
       unsubApts();
+      unsubDigests();
     };
   }, []);
 
@@ -247,6 +255,11 @@ export const CaretakerDashboard = ({ onProfileUpdated }) => {
               </button>
             </div>
           )}
+
+          <DailyDigestCard
+            digests={digests}
+            onPreviewYesterday={() => previewYesterdayDigest({ profile, medications })}
+          />
 
           {(() => {
             const restockAlerts = buildRestockAlerts(medications);
