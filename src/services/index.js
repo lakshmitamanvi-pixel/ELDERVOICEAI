@@ -5,4 +5,5 @@ export * from './geminiService.js';
 export * from './speech.js';
 export * from './speechService.js';
 export * from './email.js';
+export * from './loggingService.js';
 

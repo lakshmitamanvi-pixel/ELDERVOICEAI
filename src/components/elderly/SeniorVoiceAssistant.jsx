@@ -14,6 +14,7 @@ import {
 } from '../../services/speechService.js';
 import { handleVoice, LatencyLogger, FILLER_TIMEOUT_MS } from '../../services/geminiService.js';
 import { sendEmergencyEmailAlert } from '../../services/email.js';
+import { logActivityEvent, logSosTriggered } from '../../services/loggingService.js';
 import { SUPPORTED_LANGUAGES, getTranslation } from '../../utils/multilingual.js';
 
 export const SeniorVoiceAssistant = forwardRef(({ onAssistantResponse, onListeningChange, onInputFocusChange }, ref) => {
@@ -48,8 +49,10 @@ export const SeniorVoiceAssistant = forwardRef(({ onAssistantResponse, onListeni
     };
   }, []);
 
-  const handleProcessVoiceInput = async (spokenText) => {
+  const handleProcessVoiceInput = async (spokenText, inputMode = 'voice') => {
     if (!spokenText || spokenText.trim().length === 0) return;
+
+    logActivityEvent(inputMode === 'chat' ? 'chat' : 'voice_query');
 
     // Cancel any ongoing audio output
     if (pipelineRef.current) {
@@ -133,6 +136,7 @@ export const SeniorVoiceAssistant = forwardRef(({ onAssistantResponse, onListeni
         }
 
         // Keep SOS path working: dispatch email alert to caregiver
+        logSosTriggered({ source: 'voice' });
         sendEmergencyEmailAlert({
           seniorName: 'Eleanor Vance',
           emergencyType: 'Voice SOS Intent: ' + spokenText,
@@ -194,7 +198,7 @@ export const SeniorVoiceAssistant = forwardRef(({ onAssistantResponse, onListeni
         setInterimTranscript(result.interimTranscript);
 
         if (result.isFinal && result.transcript.trim().length > 0) {
-          await handleProcessVoiceInput(result.transcript);
+          await handleProcessVoiceInput(result.transcript, 'voice');
         }
       },
       (state, details) => {
@@ -226,12 +230,12 @@ export const SeniorVoiceAssistant = forwardRef(({ onAssistantResponse, onListeni
 
     const query = manualInputText.trim();
     setManualInputText('');
-    await submitManualInput(query, handleProcessVoiceInput);
+    await submitManualInput(query, (text) => handleProcessVoiceInput(text, 'chat'));
   };
 
   const handleQuickPrompt = async (promptText) => {
     if (isProcessing) return;
-    await submitManualInput(promptText, handleProcessVoiceInput);
+    await submitManualInput(promptText, (text) => handleProcessVoiceInput(text, 'chat'));
   };
 
   const toggleSpeechAudio = () => {

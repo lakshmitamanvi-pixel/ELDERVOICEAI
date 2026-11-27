@@ -11,6 +11,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase.js';
 import { normalizeMedicine, validateMedicine } from '../utils/medicinePrediction.js';
+import { logDoseEvent } from './loggingService.js';
 
 const INITIAL_PROFILE = {
   fullName: 'Eleanor Vance',
@@ -313,7 +314,7 @@ export const updateMedication = async (id, updates) => {
   }
 };
 
-export const logMedicationDoseStatus = async (med, nextStatus) => {
+export const logMedicationDoseStatus = async (med, nextStatus, options = {}) => {
   const normalized = normalizeMedicine(med);
   const nowIso = new Date().toISOString();
   const updates = {
@@ -330,7 +331,18 @@ export const logMedicationDoseStatus = async (med, nextStatus) => {
     updates.lastTakenAt = nowIso;
   }
 
-  return updateMedication(normalized.id, updates);
+  const result = await updateMedication(normalized.id, updates);
+
+  if (nextStatus === 'confirmed') {
+    await logDoseEvent({
+      med: normalized,
+      status: 'taken',
+      source: options.source || 'button',
+      loggedAt: nowIso,
+    });
+  }
+
+  return result;
 };
 
 export const refillMedicationStock = async (med, addedUnits) => {

@@ -6,6 +6,7 @@ import { formatSeniorDate, formatSeniorTime } from './utils/formatters.js';
 import { subscribeToMedications, logMedicationDoseStatus, subscribeToProfile } from './services/caretakerService.js';
 import { sendEmergencyEmailAlert } from './services/email.js';
 import { checkStartupHealth } from './services/geminiService.js';
+import { logSosTriggered, logActivityEvent, flushPendingLogs } from './services/loggingService.js';
 
 export function App() {
   const [activeTab, setActiveTab] = useState('senior');
@@ -26,6 +27,11 @@ export function App() {
     checkStartupHealth().catch((err) => {
       console.error('[App] Startup health check failed unexpectedly:', err);
     });
+    flushPendingLogs()
+      .catch((err) => console.error('[App] Pending log flush failed:', err))
+      .finally(() => {
+        logActivityEvent('app_open');
+      });
   }, []);
 
   useEffect(() => {
@@ -43,6 +49,7 @@ export function App() {
 
   const handleEmergencyAlert = async () => {
     setEmergencyStatus('Alerting Family & Caretaker...');
+    logSosTriggered({ source: 'button' });
     try {
       await sendEmergencyEmailAlert({
         seniorName: 'Eleanor Vance',
@@ -62,7 +69,7 @@ export function App() {
     const targetMed = medications.find((m) => m.id === id);
     const newStatus = takenState ? 'confirmed' : 'pending';
     if (targetMed) {
-      await logMedicationDoseStatus(targetMed, newStatus);
+      await logMedicationDoseStatus(targetMed, newStatus, { source: 'button' });
     }
   };
 

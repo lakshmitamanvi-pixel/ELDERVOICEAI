@@ -77,7 +77,7 @@ export const CaretakerDashboard = ({ onProfileUpdated }) => {
     try {
       const targetMed = medications.find((m) => m.id === id);
       if (targetMed) {
-        await logMedicationDoseStatus(targetMed, status);
+        await logMedicationDoseStatus(targetMed, status, { source: 'caregiver' });
       } else {
         await updateMedication(id, { status, updatedAt: new Date().toISOString() });
       }
